@@ -5,6 +5,9 @@ export type Room = {
   id: string;
   name: string;
   description?: string;
+  createdBy?: string;
+  invitedUsers?: string[];
+  roomCode?: string;
   nowPlayingTrackId?: string | null;
   nowPlayingStartedAt?: number | null;
   theme: RoomThemeId;
@@ -94,5 +97,28 @@ export async function setNowPlaying(
 
 export async function updateRoomTheme(roomId: string, theme: RoomThemeId) {
   const res = await api.patch<Room>(`/rooms/${roomId}/theme`, { theme });
+  return res.data;
+}
+
+export async function inviteUserToRoom(roomId: string, email: string) {
+  const res = await api.post<{ success: boolean; message: string }>(
+    `/rooms/${roomId}/invite`,
+    { email }
+  );
+  return res.data;
+}
+
+export async function joinRoomByCode(code: string) {
+  const res = await api.post<{ room: Room; success?: boolean; alreadyMember?: boolean }>(
+    "/rooms/join",
+    { code }
+  );
+  return res.data;
+}
+
+export async function regenerateRoomCode(roomId: string) {
+  const res = await api.post<{ room: Room; roomCode: string }>(
+    `/rooms/${roomId}/regenerate-code`
+  );
   return res.data;
 }

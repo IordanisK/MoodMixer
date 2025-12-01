@@ -30,6 +30,35 @@ export function registerApiRoutes(app, io, db, admin) {
   }
 
   /**
+   * Generate a unique room code (6 characters, alphanumeric)
+   */
+  function generateRoomCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Exclude similar-looking chars
+    let code = "";
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  /**
+   * Helper function to check if a user has access to a room
+   */
+  async function checkRoomAccess(roomId, userId) {
+    const doc = await db.collection("rooms").doc(roomId).get();
+    if (!doc.exists) return { hasAccess: false, room: null };
+    
+    const room = doc.data();
+    const isCreator = room.createdBy === userId;
+    const isInvited = (room.invitedUsers || []).includes(userId);
+    
+    return {
+      hasAccess: isCreator || isInvited,
+      room: { id: doc.id, ...room },
+    };
+  }
+
+  /**
    * PUBLIC routes (no authMiddleware)
    * - Spotify OAuth callback
    * - Metadata fetch (optional to keep public)
@@ -163,15 +192,29 @@ export function registerApiRoutes(app, io, db, admin) {
    */
   router.get("/rooms", async (req, res) => {
     try {
+      const userId = req.user.uid;
+      
+      // Get all rooms and filter by access
       const snapshot = await db
         .collection("rooms")
         .orderBy("createdAt", "desc")
         .get();
 
-      const rooms = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      const rooms = snapshot.docs
+        .map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+          };
+        })
+        .filter((room) => {
+          // User can see room if they created it or are invited
+          const isCreator = room.createdBy === userId;
+          const isInvited = (room.invitedUsers || []).includes(userId);
+          return isCreator || isInvited;
+        });
+      
       res.json(rooms);
     } catch (err) {
       console.error("Error getting rooms", err);
@@ -181,13 +224,18 @@ export function registerApiRoutes(app, io, db, admin) {
 
   router.get("/rooms/:roomId", async (req, res) => {
     const { roomId } = req.params;
+    const userId = req.user.uid;
+    
     try {
-      const doc = await db.collection("rooms").doc(roomId).get();
-      if (!doc.exists) {
-        return res.status(404).json({ error: "Room not found" });
+      const { hasAccess, room } = await checkRoomAccess(roomId, userId);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
       }
-      const room = mapRoomDoc(doc);
-      res.json(room);
+      
+      const doc = await db.collection("rooms").doc(roomId).get();
+      const mappedRoom = mapRoomDoc(doc);
+      res.json(mappedRoom);
     } catch (err) {
       console.error("Error fetching room", err);
       res.status(500).json({ error: "Error fetching room" });
@@ -199,6 +247,19 @@ export function registerApiRoutes(app, io, db, admin) {
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
+      // Generate unique room code
+      let roomCode;
+      let codeExists = true;
+      while (codeExists) {
+        roomCode = generateRoomCode();
+        const existingRoom = await db
+          .collection("rooms")
+          .where("roomCode", "==", roomCode)
+          .limit(1)
+          .get();
+        codeExists = !existingRoom.empty;
+      }
+
       const newRoom = {
         name,
         description: description || "",
@@ -209,6 +270,8 @@ export function registerApiRoutes(app, io, db, admin) {
         nowPlayingAt: null,
         theme: "synthwave",
         autoDjEnabled: false,
+        invitedUsers: [],
+        roomCode, // Add unique room code
       };
 
       const ref = await db.collection("rooms").add(newRoom);
@@ -223,11 +286,119 @@ export function registerApiRoutes(app, io, db, admin) {
   });
 
   /**
+   * JOIN ROOM BY CODE
+   */
+  router.post("/rooms/join", async (req, res) => {
+    const { code } = req.body;
+    const userId = req.user.uid;
+
+    if (!code || !code.trim()) {
+      return res.status(400).json({ error: "code is required" });
+    }
+
+    try {
+      const roomCode = code.trim().toUpperCase();
+      
+      // Find room by code
+      const snapshot = await db
+        .collection("rooms")
+        .where("roomCode", "==", roomCode)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return res.status(404).json({ error: "Invalid room code" });
+      }
+
+      const roomDoc = snapshot.docs[0];
+      const room = roomDoc.data();
+      const roomId = roomDoc.id;
+
+      // Check if user is already in the room
+      const isCreator = room.createdBy === userId;
+      const isInvited = (room.invitedUsers || []).includes(userId);
+
+      if (isCreator || isInvited) {
+        // User already has access, just return the room
+        const mappedRoom = mapRoomDoc(roomDoc);
+        return res.json({ room: mappedRoom, alreadyMember: true });
+      }
+
+      // Add user to invited users
+      const roomRef = db.collection("rooms").doc(roomId);
+      await roomRef.update({
+        invitedUsers: admin.firestore.FieldValue.arrayUnion(userId),
+      });
+
+      const updatedDoc = await roomRef.get();
+      const mappedRoom = mapRoomDoc(updatedDoc);
+
+      res.json({ room: mappedRoom, success: true });
+    } catch (err) {
+      console.error("Error joining room by code", err);
+      res.status(500).json({ error: "Failed to join room" });
+    }
+  });
+
+  /**
+   * REGENERATE ROOM CODE (room creator only)
+   */
+  router.post("/rooms/:roomId/regenerate-code", async (req, res) => {
+    const { roomId } = req.params;
+    const userId = req.user.uid;
+
+    try {
+      const { hasAccess, room } = await checkRoomAccess(roomId, userId);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Only room creator can regenerate code
+      if (room.createdBy !== userId) {
+        return res.status(403).json({ error: "Only room creator can regenerate code" });
+      }
+
+      // Generate new unique code
+      let newCode;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = generateRoomCode();
+        const existingRoom = await db
+          .collection("rooms")
+          .where("roomCode", "==", newCode)
+          .limit(1)
+          .get();
+        codeExists = !existingRoom.empty;
+      }
+
+      // Update room with new code
+      const roomRef = db.collection("rooms").doc(roomId);
+      await roomRef.update({ roomCode: newCode });
+
+      const updatedDoc = await roomRef.get();
+      const mappedRoom = mapRoomDoc(updatedDoc);
+
+      res.json({ room: mappedRoom, roomCode: newCode });
+    } catch (err) {
+      console.error("Error regenerating room code", err);
+      res.status(500).json({ error: "Failed to regenerate room code" });
+    }
+  });
+
+  /**
    * TRACKS
    */
   router.get("/rooms/:roomId/tracks", async (req, res) => {
     const { roomId } = req.params;
+    const userId = req.user.uid;
+    
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const snapshot = await db
         .collection("rooms")
         .doc(roomId)
@@ -250,13 +421,17 @@ export function registerApiRoutes(app, io, db, admin) {
   router.post("/rooms/:roomId/tracks", async (req, res) => {
     const { roomId } = req.params;
     const { url, note } = req.body;
+    const userId = req.user.uid;
 
     if (!url || !url.trim()) {
       return res.status(400).json({ error: "url is required" });
     }
 
     try {
-      const userId = req.user?.uid || "anonymous";
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
 
       const roomRef = db.collection("rooms").doc(roomId);
       const tracksRef = roomRef.collection("tracks");
@@ -304,6 +479,10 @@ export function registerApiRoutes(app, io, db, admin) {
     }
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const trackRef = db
         .collection("rooms")
         .doc(roomId)
@@ -352,8 +531,13 @@ export function registerApiRoutes(app, io, db, admin) {
    */
   router.get("/rooms/:roomId/mood-items", async (req, res) => {
     const { roomId } = req.params;
+    const userId = req.user.uid;
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const snapshot = await db
         .collection("rooms")
         .doc(roomId)
@@ -375,12 +559,17 @@ export function registerApiRoutes(app, io, db, admin) {
   router.post("/rooms/:roomId/mood-items", async (req, res) => {
     const { roomId } = req.params;
     const { type, url, caption } = req.body;
+    const userId = req.user.uid;
 
     if (!type || !url) {
       return res.status(400).json({ error: "type and url are required" });
     }
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const newItem = {
         type,
         url,
@@ -413,8 +602,13 @@ export function registerApiRoutes(app, io, db, admin) {
   router.post("/rooms/:roomId/now-playing", async (req, res) => {
     const { roomId } = req.params;
     const { trackId } = req.body;
+    const userId = req.user.uid;
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const roomRef = db.collection("rooms").doc(roomId);
 
       if (trackId) {
@@ -452,12 +646,17 @@ export function registerApiRoutes(app, io, db, admin) {
   router.patch("/rooms/:roomId/theme", async (req, res) => {
     const { roomId } = req.params;
     const { theme } = req.body;
+    const userId = req.user.uid;
 
     if (!["synthwave", "chill", "sunset", "forest"].includes(theme)) {
       return res.status(400).json({ error: "Invalid theme" });
     }
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const roomRef = db.collection("rooms").doc(roomId);
       await roomRef.update({ theme });
 
@@ -481,8 +680,13 @@ export function registerApiRoutes(app, io, db, admin) {
    */
   router.get("/rooms/:roomId/chat", async (req, res) => {
     const { roomId } = req.params;
+    const userId = req.user.uid;
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const snap = await db
         .collection("rooms")
         .doc(roomId)
@@ -506,13 +710,17 @@ export function registerApiRoutes(app, io, db, admin) {
   router.post("/rooms/:roomId/chat", async (req, res) => {
     const { roomId } = req.params;
     const { text } = req.body;
+    const userId = req.user.uid;
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: "text is required" });
     }
 
     try {
-      const userId = req.user.uid;
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const userName =
         req.user.name || req.user.displayName || req.user.email || "Anon DJ";
 
@@ -549,8 +757,13 @@ export function registerApiRoutes(app, io, db, admin) {
    */
   router.get("/rooms/:roomId/history", async (req, res) => {
     const { roomId } = req.params;
+    const userId = req.user.uid;
 
     try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const snap = await db
         .collection("rooms")
         .doc(roomId)

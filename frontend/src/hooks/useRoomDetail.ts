@@ -44,6 +44,8 @@ export function useRoomDetail(roomId: string) {
 
   const [trackMeta, setTrackMeta] = useState<Record<string, TrackMetadata>>({});
   const [roomTheme, setRoomTheme] = useState<RoomThemeId>("synthwave");
+  const [roomCreatedBy, setRoomCreatedBy] = useState<string | null>(null);
+  const [roomCode, setRoomCode] = useState<string | null>(null);
 
 
 
@@ -79,8 +81,14 @@ const loadRoom = async () => {
     setNowPlayingId(room.nowPlayingTrackId ?? null);
     setNowPlayingStartedAt(room.nowPlayingStartedAt ?? null);
     setRoomTheme((room.theme as RoomThemeId) || "synthwave");
-  } catch (e) {
+    setRoomCreatedBy(room.createdBy || null);
+    setRoomCode(room.roomCode || null);
+  } catch (e: any) {
     console.log("Error loading room", e);
+    // If access denied, throw error to be handled by component
+    if (e.response?.status === 403) {
+      throw new Error("You don't have access to this room");
+    }
   }
 };
 
@@ -262,7 +270,9 @@ const loadRoom = async () => {
     socketConnected,
     roomUsers,
     trackMeta,
-    roomTheme,    
+    roomTheme,
+    roomCreatedBy,
+    roomCode,
     setUrl,
     setNote,
     handleAddTrack,
