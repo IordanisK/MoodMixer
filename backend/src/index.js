@@ -53,18 +53,51 @@ io.use(async (socket, next) => {
 
 const roomMembers = {};
 
+/**
+ * Helper function to check if a user has access to a room
+ */
+async function checkRoomAccess(roomId, userId) {
+  const doc = await db.collection("rooms").doc(roomId).get();
+  if (!doc.exists) return { hasAccess: false };
+  
+  const room = doc.data();
+  const isCreator = room.createdBy === userId;
+  const isInvited = (room.invitedUsers || []).includes(userId);
+  
+  return {
+    hasAccess: isCreator || isInvited,
+  };
+}
+
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id, "user:", socket.user?.uid);
 
-  socket.on("join-room", (roomId) => {
-    socket.join(roomId);
-    roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
-    console.log(`User ${socket.user?.uid} joined room ${roomId}`);
+  socket.on("join-room", async (roomId) => {
+    const userId = socket.user?.uid;
+    if (!userId) {
+      socket.emit("error", { message: "Unauthorized" });
+      return;
+    }
 
-    io.to(roomId).emit("room-users", {
-      roomId,
-      count: roomMembers[roomId],
-    });
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        socket.emit("error", { message: "Access denied to this room" });
+        return;
+      }
+
+      socket.join(roomId);
+      roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
+      console.log(`User ${userId} joined room ${roomId}`);
+
+      io.to(roomId).emit("room-users", {
+        roomId,
+        count: roomMembers[roomId],
+      });
+    } catch (err) {
+      console.error("Error checking room access for socket:", err);
+      socket.emit("error", { message: "Error joining room" });
+    }
   });
 
   socket.on("leave-room", (roomId) => {

@@ -44,12 +44,15 @@ export function useRoomDetail(roomId: string) {
 
   const [trackMeta, setTrackMeta] = useState<Record<string, TrackMetadata>>({});
   const [roomTheme, setRoomTheme] = useState<RoomThemeId>("synthwave");
+  const [roomCreatedBy, setRoomCreatedBy] = useState<string | null>(null);
+  const [roomCode, setRoomCode] = useState<string | null>(null);
 
 
 
   // --------- loaders ---------
 
   const loadTracks = async () => {
+    if (!roomId) return;
     try {
       setLoadingTracks(true);
       const data = await fetchTracks(roomId);
@@ -62,6 +65,7 @@ export function useRoomDetail(roomId: string) {
   };
 
   const loadMood = async () => {
+    if (!roomId) return;
     try {
       setLoadingMood(true);
       const data = await fetchMoodItems(roomId);
@@ -74,13 +78,20 @@ export function useRoomDetail(roomId: string) {
   };
 
 const loadRoom = async () => {
+  if (!roomId) return;
   try {
     const room: Room = await fetchRoom(roomId);
     setNowPlayingId(room.nowPlayingTrackId ?? null);
     setNowPlayingStartedAt(room.nowPlayingStartedAt ?? null);
     setRoomTheme((room.theme as RoomThemeId) || "synthwave");
-  } catch (e) {
+    setRoomCreatedBy(room.createdBy || null);
+    setRoomCode(room.roomCode || null);
+  } catch (e: any) {
     console.log("Error loading room", e);
+    // If access denied, throw error to be handled by component
+    if (e.response?.status === 403) {
+      throw new Error("You don't have access to this room");
+    }
   }
 };
 
@@ -146,6 +157,8 @@ const loadRoom = async () => {
   // --------- socket + initial load ---------
 
   useEffect(() => {
+    if (!roomId) return;
+
     let unsubscribeEvents: (() => void) | null = null;
     let socketCleanup: (() => void) | null = null;
 
@@ -210,7 +223,7 @@ const loadRoom = async () => {
     return () => {
       if (unsubscribeEvents) unsubscribeEvents();
       if (socketCleanup) socketCleanup();
-      leaveRoom(roomId);
+      if (roomId) leaveRoom(roomId);
     };
   }, [roomId]);
 
@@ -262,7 +275,9 @@ const loadRoom = async () => {
     socketConnected,
     roomUsers,
     trackMeta,
-    roomTheme,    
+    roomTheme,
+    roomCreatedBy,
+    roomCode,
     setUrl,
     setNote,
     handleAddTrack,
