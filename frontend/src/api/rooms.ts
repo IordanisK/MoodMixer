@@ -128,3 +128,10 @@ export async function regenerateRoomCode(roomId: string) {
   );
   return res.data;
 }
+
+export async function deleteRoom(roomId: string) {
+  const res = await api.delete<{ success: boolean; message: string }>(
+    `/rooms/${roomId}`
+  );
+  return res.data;
+}
