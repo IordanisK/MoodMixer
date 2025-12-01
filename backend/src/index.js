@@ -93,6 +93,22 @@ io.on("connection", (socket) => {
       roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
       console.log(`User ${userId} joined room ${roomId}`);
 
+      // Send current now-playing state to the newly joined user
+      const roomDoc = await db.collection("rooms").doc(roomId).get();
+      if (roomDoc.exists) {
+        const roomData = roomDoc.data();
+        const trackId = roomData.nowPlayingTrackId || null;
+        const startedAt = roomData.nowPlayingStartedAt
+          ? roomData.nowPlayingStartedAt.toMillis()
+          : null;
+        
+        // Send current now-playing state to this specific user
+        socket.emit("now-playing-state", {
+          trackId,
+          startedAt,
+        });
+      }
+
       io.to(roomId).emit("room-users", {
         roomId,
         count: roomMembers[roomId],

@@ -26,8 +26,8 @@ import RoomThemePicker from "../components/room/RoomThemePicker";
 import { useRoomChat } from "../hooks/useRoomChat";
 import RoomChat from "../components/room/RoomChat";
 import PresenceAvatars from "../components/room/PresenceAvatars";
-import WebNowPlayingPlayer from "../components/room/WebNowPlayingPlayer";
 import { useSpotifyPlayer } from "../spotify/useSpotifyPlayer";
+import { useYouTubePlayer } from "../spotify/useYouTubePlayer";
 import api from "../api/client";
 import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "../context/AuthContext";
@@ -109,6 +109,7 @@ export default function RoomDetailScreen({ route }: Props) {
   } = roomChat;
 
   const { isReady: spotifyReady, playSpotifyTrack } = useSpotifyPlayer();
+  const { isReady: youtubeReady, playYouTubeTrack, stopYouTubeTrack } = useYouTubePlayer();
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView | null>(null);
@@ -213,6 +214,90 @@ export default function RoomDetailScreen({ route }: Props) {
     nowPlayingStartedAt,
     spotifyReady,
     playSpotifyTrack,
+  ]);
+
+  // Auto-play YouTube tracks (similar to Spotify)
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    // If no track ID, stop YouTube playback
+    if (!nowPlayingId) {
+      stopYouTubeTrack();
+      return;
+    }
+
+    // Find the track in the tracks array
+    const track = tracks.find((t) => t.id === nowPlayingId);
+    if (!track) {
+      // Track not found yet, wait for tracks to load
+      console.log("YouTube track not found in tracks array yet, waiting...");
+      return;
+    }
+
+    // Check if it's a YouTube track
+    const isYouTube =
+      track.provider === "youtube" ||
+      (track.url &&
+        (track.url.includes("youtube.com") ||
+          track.url.includes("youtu.be")));
+
+    if (!isYouTube) {
+      return;
+    }
+
+    if (!youtubeReady) {
+      console.log("YouTube player not ready yet");
+      return;
+    }
+
+    console.log(
+      "Attempting to play YouTube track:",
+      track.url,
+      "startedAt:",
+      nowPlayingStartedAt
+    );
+
+    const playTrack = async () => {
+      try {
+        if (!nowPlayingStartedAt) {
+          // fallback: start from 0 if we don't have a timestamp
+          await playYouTubeTrack(track.url, 0);
+        } else {
+          const offsetSeconds = Math.max(
+            0,
+            (Date.now() - nowPlayingStartedAt) / 1000
+          );
+          await playYouTubeTrack(track.url, offsetSeconds);
+        }
+      } catch (e: any) {
+        const errorMessage = e.message || "Failed to play YouTube track";
+        
+        // Don't show alert for "not ready" errors - the effect will retry when ready
+        if (errorMessage.includes("not ready")) {
+          console.log("YouTube player not ready, will retry when ready");
+          return;
+        }
+        
+        console.error("Error playing YouTube track:", e);
+        // Show user-friendly error message for other errors
+        if (Platform.OS === "web") {
+          alert(`YouTube Playback Error\n\n${errorMessage}`);
+        } else {
+          Alert.alert("YouTube Playback Error", errorMessage);
+        }
+      }
+    };
+
+    playTrack();
+  }, [
+    nowPlayingId,
+    tracks,
+    nowPlayingStartedAt,
+    youtubeReady,
+    playYouTubeTrack,
+    stopYouTubeTrack,
   ]);
 
   async function handleConnectSpotify() {
@@ -422,16 +507,6 @@ export default function RoomDetailScreen({ route }: Props) {
               onClear={handleClearNowPlaying}
             />
 
-            {nowPlayingTrack &&
-              (nowPlayingTrack.provider === "youtube" ||
-                (nowPlayingTrack.url &&
-                  (nowPlayingTrack.url.includes("youtube.com") ||
-                    nowPlayingTrack.url.includes("youtu.be")))) && (
-                <WebNowPlayingPlayer
-                  url={nowPlayingTrack.url}
-                  startedAt={nowPlayingStartedAt}
-                />
-              )}
 
             <AddTrackCard
               url={url}

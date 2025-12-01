@@ -1,9 +1,17 @@
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useRef, useState } from "react";
 
 type Props = {
   url?: string;
   startedAt?: number | null; // ms since epoch
 };
+
+// Declare YouTube IFrame API types
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
 
 function extractYouTubeId(url: string): string | null {
   try {
@@ -27,6 +35,10 @@ function extractYouTubeId(url: string): string | null {
 }
 
 export default function WebNowPlayingPlayer({ url, startedAt }: Props) {
+  const [playerReady, setPlayerReady] = useState(false);
+  const playerRef = useRef<any>(null);
+  const containerId = useRef(`youtube-player-${Math.random().toString(36).substr(2, 9)}`);
+
   if (!url) return null;
 
   const videoId = extractYouTubeId(url);
@@ -42,8 +54,110 @@ export default function WebNowPlayingPlayer({ url, startedAt }: Props) {
     return Math.floor(diffMs / 1000);
   }, [startedAt, url]);
 
-  // Use videoId and offsetSeconds as key to force iframe reload when track changes
-  const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${offsetSeconds}&controls=1&enablejsapi=1`;
+  // Load YouTube IFrame API
+  useEffect(() => {
+    if (typeof window === "undefined" || window.YT) {
+      setPlayerReady(true);
+      return;
+    }
+
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName("script")[0];
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+    window.onYouTubeIframeAPIReady = () => {
+      setPlayerReady(true);
+    };
+
+    return () => {
+      // Cleanup
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (e) {
+          // Ignore errors during cleanup
+        }
+      }
+    };
+  }, []);
+
+  // Initialize player when API is ready
+  useEffect(() => {
+    if (!playerReady || !window.YT || !videoId) return;
+
+    const container = document.getElementById(containerId.current);
+    if (!container) return;
+
+    // Destroy existing player if it exists
+    if (playerRef.current) {
+      try {
+        playerRef.current.destroy();
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
+    // Create new player
+    playerRef.current = new window.YT.Player(containerId.current, {
+      videoId: videoId,
+      playerVars: {
+        autoplay: 1,
+        start: offsetSeconds,
+        controls: 1,
+        enablejsapi: 1,
+        modestbranding: 1,
+      },
+      events: {
+        onReady: (event: any) => {
+          console.log("🎬 YouTube player ready, starting playback at", offsetSeconds, "seconds");
+          // Ensure video plays and seeks to correct position
+          event.target.seekTo(offsetSeconds, true);
+          event.target.playVideo();
+        },
+        onStateChange: (event: any) => {
+          // YouTube player states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
+          if (event.data === window.YT.PlayerState.PLAYING) {
+            console.log("🎬 YouTube player is playing");
+          }
+        },
+      },
+    });
+
+    return () => {
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (e) {
+          // Ignore errors during cleanup
+        }
+        playerRef.current = null;
+      }
+    };
+  }, [playerReady, videoId, offsetSeconds]);
+
+  // Update player when offset changes (for sync)
+  useEffect(() => {
+    if (!playerRef.current || !playerReady) return;
+
+    const currentTime = playerRef.current.getCurrentTime();
+    const targetTime = offsetSeconds;
+    const diff = Math.abs(currentTime - targetTime);
+
+    // If we're more than 2 seconds off, seek to correct position
+    if (diff > 2) {
+      console.log("🎬 Syncing YouTube player:", { currentTime, targetTime, diff });
+      try {
+        playerRef.current.seekTo(targetTime, true);
+        // Ensure it's playing
+        if (playerRef.current.getPlayerState() !== window.YT.PlayerState.PLAYING) {
+          playerRef.current.playVideo();
+        }
+      } catch (e) {
+        console.error("Error syncing YouTube player:", e);
+      }
+    }
+  }, [offsetSeconds, playerReady]);
 
   useEffect(() => {
     console.log("🎬 YouTube player updated:", {
@@ -51,8 +165,9 @@ export default function WebNowPlayingPlayer({ url, startedAt }: Props) {
       url,
       startedAt,
       offsetSeconds,
+      playerReady,
     });
-  }, [videoId, url, startedAt, offsetSeconds]);
+  }, [videoId, url, startedAt, offsetSeconds, playerReady]);
 
   return (
     <div
@@ -67,19 +182,14 @@ export default function WebNowPlayingPlayer({ url, startedAt }: Props) {
       }}
     >
       <div style={{ position: "relative", paddingTop: "56.25%" }}>
-        <iframe
-          key={`${videoId}-${offsetSeconds}`}
-          src={src}
-          title="Now playing"
+        <div
+          id={containerId.current}
           style={{
             position: "absolute",
             inset: 0,
             width: "100%",
             height: "100%",
-            border: "none",
           }}
-          allow="autoplay; encrypted-media"
-          allowFullScreen
         />
       </div>
     </div>
