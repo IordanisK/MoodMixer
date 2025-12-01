@@ -9,16 +9,105 @@ import {
   Alert,
   Animated,
   Platform,
+  ScrollView,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../App";
-import { Room, fetchRooms, createRoom, joinRoomByCode } from "../api/rooms";
+import { Room, fetchRooms, createRoom, joinRoomByCode, deleteRoom } from "../api/rooms";
 import GradientBackground from "../components/GradientBackground";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuth } from "../context/AuthContext";
 import { colors, radii, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Rooms">;
+
+type RoomItemProps = {
+  item: Room;
+  index: number;
+  user: any;
+  deletingRoomId: string | null;
+  onDelete: (roomId: string, roomName: string) => void;
+  onPress: (slug: string) => void;
+};
+
+function RoomItem({ item, index, user, deletingRoomId, onDelete, onPress }: RoomItemProps) {
+  const itemAnim = React.useRef(new Animated.Value(0)).current;
+  
+  React.useEffect(() => {
+    Animated.timing(itemAnim, {
+      toValue: 1,
+      duration: 350,
+      delay: index * 60,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const isCreator = user && item.createdBy === user.uid;
+  const isDeleting = deletingRoomId === item.id;
+
+  // Debug logging
+  React.useEffect(() => {
+    if (isCreator) {
+      console.log("Room is deletable:", item.name, "createdBy:", item.createdBy, "user.uid:", user?.uid);
+    }
+  }, []);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: itemAnim,
+        transform: [
+          {
+            translateY: itemAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [12, 0],
+            }),
+          },
+        ],
+      }}
+    >
+      <View style={styles.roomCard}>
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={0.85}
+            onPress={() => onPress(item.slug || item.id)}
+          >
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.roomName}>{item.name}</Text>
+                {item.description ? (
+                  <Text style={styles.roomDescription}>
+                    {item.description}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={styles.roomPill}>Enter</Text>
+            </View>
+          </TouchableOpacity>
+          {isCreator && (
+            <TouchableOpacity
+              onPress={() => {
+                console.log("Delete button clicked for room:", item.id, item.name);
+                onDelete(item.id, item.name);
+              }}
+              disabled={isDeleting}
+              style={[
+                styles.deleteButton,
+                { opacity: isDeleting ? 0.5 : 1 }
+              ]}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.deleteButtonText}>
+                {isDeleting ? "..." : "🗑️"}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
 
 export default function RoomListScreen({ navigation }: Props) {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -27,7 +116,8 @@ export default function RoomListScreen({ navigation }: Props) {
   const [description, setDescription] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
-  const { logOut } = useAuth();
+  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
+  const { logOut, user } = useAuth();
 
   const anim = React.useRef(new Animated.Value(0)).current;
 
@@ -105,6 +195,63 @@ export default function RoomListScreen({ navigation }: Props) {
     }
   };
 
+  const handleDeleteRoom = async (roomId: string, roomName: string) => {
+    console.log("handleDeleteRoom called:", roomId, roomName);
+    
+    const performDelete = async () => {
+      console.log("Delete confirmed, calling API...");
+      try {
+        setDeletingRoomId(roomId);
+        const result = await deleteRoom(roomId);
+        console.log("Delete successful:", result);
+        setRooms((prev) => prev.filter((r) => r.id !== roomId));
+        
+        if (Platform.OS === "web") {
+          alert("Success 🎉\nRoom deleted successfully");
+        } else {
+          Alert.alert("Success 🎉", "Room deleted successfully");
+        }
+      } catch (e: any) {
+        console.log("Error deleting room", e);
+        console.log("Error response:", e.response?.data);
+        const errorMessage =
+          e.response?.data?.error || "Failed to delete room. Please try again.";
+        
+        if (Platform.OS === "web") {
+          alert(`Oops 💥\n${errorMessage}`);
+        } else {
+          Alert.alert("Oops 💥", errorMessage);
+        }
+      } finally {
+        setDeletingRoomId(null);
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(
+        `Are you sure you want to delete "${roomName}"? This action cannot be undone.`
+      );
+      if (confirmed) {
+        await performDelete();
+      } else {
+        console.log("Delete cancelled");
+      }
+    } else {
+      Alert.alert(
+        "Delete Room",
+        `Are you sure you want to delete "${roomName}"? This action cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel", onPress: () => console.log("Delete cancelled") },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: performDelete,
+          },
+        ]
+      );
+    }
+  };
+
   useEffect(() => {
     loadRooms();
   }, []);
@@ -121,9 +268,14 @@ export default function RoomListScreen({ navigation }: Props) {
     ],
   };
 
+
   return (
     <GradientBackground>
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Animated.View style={[styles.topRow, headerAnimStyle]}>
           <View>
             <Text style={styles.title}>Your rooms</Text>
@@ -175,66 +327,30 @@ export default function RoomListScreen({ navigation }: Props) {
           {loading ? "Loading..." : "Active rooms"}
         </Text>
 
-        <FlatList
-          data={rooms}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingBottom: spacing.lg }}
-          renderItem={({ item, index }) => {
-            const itemAnim = new Animated.Value(0);
-            Animated.timing(itemAnim, {
-              toValue: 1,
-              duration: 350,
-              delay: index * 60,
-              useNativeDriver: true,
-            }).start();
-
-            return (
-              <Animated.View
-                style={{
-                  opacity: itemAnim,
-                  transform: [
-                    {
-                      translateY: itemAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [12, 0],
-                      }),
-                    },
-                  ],
-                }}
-              >
-                <TouchableOpacity
-                  style={styles.roomCard}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    navigation.navigate("RoomDetail", {
-                      slug: item.slug || item.id, // Fallback to id if slug doesn't exist (for old rooms)
-                    })
-                  }
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.roomName}>{item.name}</Text>
-                    {item.description ? (
-                      <Text style={styles.roomDescription}>
-                        {item.description}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text style={styles.roomPill}>Enter</Text>
-                </TouchableOpacity>
-              </Animated.View>
-            );
-          }}
-        />
-      </View>
+        {rooms.map((item, index) => (
+          <RoomItem
+            key={item.id}
+            item={item}
+            index={index}
+            user={user}
+            deletingRoomId={deletingRoomId}
+            onDelete={handleDeleteRoom}
+            onPress={(slug) => navigation.navigate("RoomDetail", { slug })}
+          />
+        ))}
+      </ScrollView>
     </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
+    paddingBottom: spacing.xl,
   },
   topRow: {
     flexDirection: "row",
@@ -294,6 +410,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(55,65,81,0.8)",
     flexDirection: "row",
     alignItems: "center",
+    gap: spacing.sm,
   },
   roomName: {
     color: colors.text,
@@ -309,5 +426,19 @@ const styles = StyleSheet.create({
     color: colors.accentSecondary,
     fontSize: 12,
     fontWeight: "600",
+  },
+  deleteButton: {
+    marginLeft: spacing.sm,
+    padding: spacing.sm,
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 40,
+    minHeight: 40,
+    borderRadius: spacing.xs,
+    backgroundColor: "rgba(239,68,68,0.15)",
+  },
+  deleteButtonText: {
+    fontSize: 18,
+    lineHeight: 20,
   },
 });
