@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../App";
-import { Room, fetchRooms, createRoom } from "../api/rooms";
+import { Room, fetchRooms, createRoom, joinRoomByCode } from "../api/rooms";
 import GradientBackground from "../components/GradientBackground";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuth } from "../context/AuthContext";
@@ -25,6 +25,8 @@ export default function RoomListScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
   const { logOut } = useAuth();
 
   const anim = React.useRef(new Animated.Value(0)).current;
@@ -68,6 +70,38 @@ export default function RoomListScreen({ navigation }: Props) {
         "Oops 💥",
         "Something went wrong when creating your magical place💥"
       );
+    }
+  };
+
+  const handleJoinByCode = async () => {
+    if (!joinCode.trim()) {
+      Alert.alert("Hold up 🛑", "Please enter a room code");
+      return;
+    }
+
+    try {
+      setJoining(true);
+      const result = await joinRoomByCode(joinCode.trim().toUpperCase());
+      
+      if (result.alreadyMember) {
+        Alert.alert("Already a member", "You're already in this room!");
+      } else {
+        Alert.alert("Success 🎉", `Joined ${result.room.name}!`);
+        // Reload rooms to show the newly joined room
+        await loadRooms();
+        // Navigate to the room using slug
+        if (result.room.slug) {
+          navigation.navigate("RoomDetail", { slug: result.room.slug });
+        }
+      }
+      setJoinCode("");
+    } catch (e: any) {
+      console.log("Error joining room", e);
+      const errorMessage =
+        e.response?.data?.error || "Invalid room code. Please try again.";
+      Alert.alert("Oops 💥", errorMessage);
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -119,6 +153,24 @@ export default function RoomListScreen({ navigation }: Props) {
           <PrimaryButton title="Create room" onPress={handleCreateRoom} />
         </Animated.View>
 
+        <Animated.View style={[styles.formCard, headerAnimStyle]}>
+          <Text style={styles.label}>Join room by code</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter 6-digit room code"
+            placeholderTextColor={colors.textMuted}
+            value={joinCode}
+            onChangeText={(text) => setJoinCode(text.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+            autoCapitalize="characters"
+            maxLength={6}
+          />
+          <PrimaryButton
+            title={joining ? "Joining..." : "Join room"}
+            onPress={handleJoinByCode}
+            disabled={joining || !joinCode.trim()}
+          />
+        </Animated.View>
+
         <Text style={styles.sectionTitle}>
           {loading ? "Loading..." : "Active rooms"}
         </Text>
@@ -155,8 +207,7 @@ export default function RoomListScreen({ navigation }: Props) {
                   activeOpacity={0.85}
                   onPress={() =>
                     navigation.navigate("RoomDetail", {
-                      roomId: item.id,
-                      roomName: item.name,
+                      slug: item.slug || item.id, // Fallback to id if slug doesn't exist (for old rooms)
                     })
                   }
                 >
