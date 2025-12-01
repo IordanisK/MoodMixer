@@ -22,6 +22,12 @@ This guide explains how to set up GitHub Actions to deploy MoodMixer to Google C
      - `Service Account User` (use service accounts)
      - `Artifact Registry Writer` (push Docker images to Artifact Registry)
      - `Artifact Registry Repository Administrator` (create repositories if needed)
+     - `Service Usage Admin` (optional, to auto-enable APIs via workflow)
+   
+   **Note**: If you don't grant `Service Usage Admin`, you'll need to manually enable these APIs:
+   - [Cloud Run API](https://console.developers.google.com/apis/api/run.googleapis.com/overview?project=moodmixer-6bb54)
+   - [Artifact Registry API](https://console.developers.google.com/apis/api/artifactregistry.googleapis.com/overview?project=moodmixer-6bb54)
+   - [Cloud Build API](https://console.developers.google.com/apis/api/cloudbuild.googleapis.com/overview?project=moodmixer-6bb54)
    - Click "Done"
    - Click on the service account → "Keys" tab → "Add Key" → "Create new key" → Select "JSON"
    - Download the JSON file
