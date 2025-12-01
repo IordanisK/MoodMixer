@@ -7,10 +7,22 @@ import { ChatMessage } from "../api/chat";
 
 let socket: Socket | null = null;
 
-const baseURL =
-  Platform.OS === "android"
-    ? "http://10.0.2.2:4000"
-    : "http://127.0.0.1:4000";
+// Use environment variable for production, fallback to localhost for development
+const getBaseURL = () => {
+  // Check for environment variable (set during build)
+  if (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  
+  // Development URLs
+  if (Platform.OS === "android") {
+    return "http://10.0.2.2:4000";
+  }
+  
+  return "http://127.0.0.1:4000";
+};
+
+const baseURL = getBaseURL();
 
 export async function getSocket(): Promise<Socket> {
   if (socket && socket.connected) return socket;

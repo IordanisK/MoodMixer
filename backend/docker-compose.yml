@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moodmixer-backend
+    ports:
+      - "4000:8080"
+    environment:
+      - PORT=8080
+      - NODE_ENV=production
+    env_file:
+      - .env
+    volumes:
+      # Mount service account file
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+

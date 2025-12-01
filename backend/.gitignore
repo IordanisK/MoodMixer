@@ -13,6 +13,7 @@ temp/
 
 # Firebase Admin keys (VERY IMPORTANT)
 serviceAccountKey.json
+firebase-service-account.json
 firebase-admin-key.json
 credentials.json
 *.secret.json

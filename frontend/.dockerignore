@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+.expo
+.expo-shared
+.expo-web
+web-build
+dist
+build
+android
+ios
+*.log
+.env
+.env.*
+.DS_Store
+.git
+.gitignore
+

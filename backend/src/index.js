@@ -46,7 +46,10 @@ io.use(async (socket, next) => {
     socket.user = decoded;
     next();
   } catch (err) {
-    console.error("Socket auth error:", err);
+    // Only log non-expired token errors to reduce noise
+    if (err.code !== "auth/id-token-expired") {
+      console.error("Socket auth error:", err);
+    }
     next(new Error("Unauthorized"));
   }
 });
@@ -136,6 +139,6 @@ io.on("connection", (socket) => {
  */
 registerApiRoutes(app, io, db, admin);
 
-httpServer.listen(PORT, () => {
-  console.log(`MoodMixer API listening on http://127.0.0.1:${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`MoodMixer API listening on port ${PORT}`);
 });
