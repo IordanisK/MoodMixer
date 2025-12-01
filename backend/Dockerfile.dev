@@ -17,3 +17,4 @@ EXPOSE 4000
 # Start with nodemon for development
 CMD ["npm", "run", "dev"]
 
+

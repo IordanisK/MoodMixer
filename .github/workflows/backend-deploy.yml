@@ -24,8 +24,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate GCP credentials secret
-        if: ${{ secrets.GCP_SA_KEY != '' }}
         run: |
+          if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+            echo "ERROR: GCP_SA_KEY secret is empty or not set!"
+            echo "Please ensure the secret is set in: Settings → Secrets and variables → Actions"
+            exit 1
+          fi
           # Check if it starts with expected JSON structure
           if ! echo "${{ secrets.GCP_SA_KEY }}" | grep -q '"type":"service_account"'; then
             echo "WARNING: GCP_SA_KEY does not appear to be a valid service account JSON"

@@ -200,3 +200,4 @@ docker-compose restart backend
 - **Production** (`Dockerfile`): Optimized build, production dependencies only
 - **Development** (`Dockerfile.dev`): Includes dev dependencies, hot reload with nodemon
 
+
