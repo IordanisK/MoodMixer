@@ -11,7 +11,17 @@ if (!admin.apps.length) {
   let credential;
 
   // Check for service account in environment variable (Cloud Run)
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  // Support both base64-encoded (from GitHub Actions) and plain JSON formats
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_B64) {
+    try {
+      const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf8');
+      const serviceAccount = JSON.parse(decoded);
+      credential = admin.credential.cert(serviceAccount);
+      console.log("Using Firebase service account from base64-encoded environment variable");
+    } catch (e) {
+      console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_B64 env var:", e);
+    }
+  } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     try {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
       credential = admin.credential.cert(serviceAccount);

@@ -87,12 +87,15 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$SERVICE_NAME"
+          # Base64 encode Firebase service account to avoid JSON escaping issues
+          FIREBASE_SA_B64=$(echo -n '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' | base64 | tr -d '\n')
+          # Deploy with environment variables
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_URI:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
-            --set-env-vars="PORT=8080,FIREBASE_SERVICE_ACCOUNT=${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" \
+            --set-env-vars="PORT=8080,FIREBASE_SERVICE_ACCOUNT_B64=$FIREBASE_SA_B64" \
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
