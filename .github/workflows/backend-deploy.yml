@@ -23,6 +23,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate GCP credentials secret
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        run: |
+          # Check if it starts with expected JSON structure
+          if ! echo "${{ secrets.GCP_SA_KEY }}" | grep -q '"type":"service_account"'; then
+            echo "WARNING: GCP_SA_KEY does not appear to be a valid service account JSON"
+            echo "Expected to contain: '\"type\":\"service_account\"'"
+          fi
+          SECRET_LENGTH=$(echo -n "${{ secrets.GCP_SA_KEY }}" | wc -c)
+          echo "✓ GCP_SA_KEY secret is set (length: $SECRET_LENGTH characters)"
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:

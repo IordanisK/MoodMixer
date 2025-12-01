@@ -13,10 +13,21 @@ This guide explains how to set up GitHub Actions to deploy MoodMixer to Google C
 ### For Backend Deployment (Cloud Run)
 
 1. **GCP_SA_KEY**: Service Account JSON key with Cloud Run permissions
-   - Go to [GCP Console > IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
-   - Create or select a service account
-   - Grant roles: `Cloud Run Admin`, `Service Account User`, `Storage Admin`
-   - Create a JSON key and add it as `GCP_SA_KEY` secret
+
+   - Go to [GCP Console > IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts?project=moodmixer-6bb54)
+   - Click "Create Service Account" (or select existing)
+   - Name it (e.g., `github-actions-backend`)
+   - Grant these roles:
+     - `Cloud Run Admin` (deploy and manage services)
+     - `Service Account User` (use service accounts)
+     - `Storage Admin` (push Docker images to GCR)
+   - Click "Done"
+   - Click on the service account → "Keys" tab → "Add Key" → "Create new key" → Select "JSON"
+   - Download the JSON file
+   - In GitHub: Settings → Secrets and variables → Actions → New repository secret
+   - Name: `GCP_SA_KEY`
+   - Value: Paste the **entire JSON file content** (starts with `{"type":"service_account",...}`)
+   - Click "Add secret"
 
 2. **FIREBASE_SERVICE_ACCOUNT**: Firebase service account JSON (same as frontend)
    - Go to [Firebase Console > Project Settings > Service Accounts](https://console.firebase.google.com/project/moodmixer-6bb54/settings/serviceaccounts/adminsdk)
@@ -27,6 +38,7 @@ This guide explains how to set up GitHub Actions to deploy MoodMixer to Google C
 ### For Frontend Deployment (Firebase Hosting)
 
 1. **FIREBASE_SERVICE_ACCOUNT**: Firebase service account JSON
+
    - Go to [Firebase Console > Project Settings > Service Accounts](https://console.firebase.google.com/project/moodmixer-6bb54/settings/serviceaccounts/adminsdk)
    - Click "Generate new private key"
    - Add the **entire JSON content** as `FIREBASE_SERVICE_ACCOUNT` secret
@@ -38,6 +50,7 @@ This guide explains how to set up GitHub Actions to deploy MoodMixer to Google C
 ## Backend Deployment (Cloud Run)
 
 The backend is deployed to **Google Cloud Run** which supports:
+
 - WebSocket connections (Socket.io)
 - Auto-scaling
 - Pay-per-use pricing
@@ -54,11 +67,13 @@ The backend is deployed to **Google Cloud Run** which supports:
 ### Environment Variables
 
 The backend needs these environment variables set in Cloud Run:
+
 - `PORT`: 8080 (automatically set by Cloud Run)
 - `FIREBASE_SERVICE_ACCOUNT`: Set automatically by GitHub Actions from secret
 - Add your other `.env` variables via Cloud Run console or gcloud CLI
 
 To set additional environment variables (e.g., Spotify credentials):
+
 ```bash
 gcloud run services update moodmixer-backend \
   --region=us-central1 \
@@ -117,6 +132,7 @@ firebase deploy --only hosting --project moodmixer-6bb54
 After backend is deployed, update the frontend to use the Cloud Run URL:
 
 1. Get the Cloud Run service URL:
+
    ```bash
    gcloud run services describe moodmixer-backend --region=us-central1 --format='value(status.url)'
    ```
@@ -148,4 +164,3 @@ After backend is deployed, update the frontend to use the Cloud Run URL:
 
 - **Cloud Run**: [GCP Console > Cloud Run](https://console.cloud.google.com/run)
 - **Firebase Hosting**: [Firebase Console > Hosting](https://console.firebase.google.com/project/moodmixer-6bb54/hosting)
-
