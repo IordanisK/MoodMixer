@@ -422,10 +422,16 @@ export default function RoomDetailScreen({ route }: Props) {
               onClear={handleClearNowPlaying}
             />
 
-            <WebNowPlayingPlayer
-              url={nowPlayingTrack?.url}
-              startedAt={nowPlayingStartedAt}
-            />
+            {nowPlayingTrack &&
+              (nowPlayingTrack.provider === "youtube" ||
+                (nowPlayingTrack.url &&
+                  (nowPlayingTrack.url.includes("youtube.com") ||
+                    nowPlayingTrack.url.includes("youtu.be")))) && (
+                <WebNowPlayingPlayer
+                  url={nowPlayingTrack.url}
+                  startedAt={nowPlayingStartedAt}
+                />
+              )}
 
             <AddTrackCard
               url={url}
