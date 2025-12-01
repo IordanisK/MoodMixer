@@ -42,6 +42,18 @@ export function registerApiRoutes(app, io, db, admin) {
   }
 
   /**
+   * Convert room name to kebab-case slug
+   */
+  function generateSlug(name) {
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, "") // Remove special characters
+      .replace(/[\s_-]+/g, "-") // Replace spaces, underscores, multiple hyphens with single hyphen
+      .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
+  }
+
+  /**
    * Helper function to check if a user has access to a room
    */
   async function checkRoomAccess(roomId, userId) {
@@ -242,6 +254,42 @@ export function registerApiRoutes(app, io, db, admin) {
     }
   });
 
+  /**
+   * GET /rooms/slug/:slug - Get room by slug
+   */
+  router.get("/rooms/slug/:slug", async (req, res) => {
+    const { slug } = req.params;
+    const userId = req.user.uid;
+    
+    try {
+      // Find room by slug
+      const snapshot = await db
+        .collection("rooms")
+        .where("slug", "==", slug)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const doc = snapshot.docs[0];
+      const roomId = doc.id;
+      
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const mappedRoom = mapRoomDoc(doc);
+      res.json(mappedRoom);
+    } catch (err) {
+      console.error("Error fetching room by slug", err);
+      res.status(500).json({ error: "Error fetching room" });
+    }
+  });
+
   router.post("/rooms", async (req, res) => {
     const { name, description } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
@@ -260,8 +308,31 @@ export function registerApiRoutes(app, io, db, admin) {
         codeExists = !existingRoom.empty;
       }
 
+      // Generate slug from name
+      let baseSlug = generateSlug(name);
+      let slug = baseSlug;
+      let slugExists = true;
+      let counter = 1;
+
+      // Ensure slug is unique
+      while (slugExists) {
+        const existingRoom = await db
+          .collection("rooms")
+          .where("slug", "==", slug)
+          .limit(1)
+          .get();
+        
+        if (existingRoom.empty) {
+          slugExists = false;
+        } else {
+          slug = `${baseSlug}-${counter}`;
+          counter++;
+        }
+      }
+
       const newRoom = {
         name,
+        slug, // Add kebab-case slug for routing
         description: description || "",
         createdBy: req.user.uid,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -271,7 +342,7 @@ export function registerApiRoutes(app, io, db, admin) {
         theme: "synthwave",
         autoDjEnabled: false,
         invitedUsers: [],
-        roomCode, // Add unique room code
+        roomCode,
       };
 
       const ref = await db.collection("rooms").add(newRoom);

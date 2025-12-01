@@ -31,7 +31,7 @@ import { useSpotifyPlayer } from "../spotify/useSpotifyPlayer";
 import api from "../api/client";
 import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "../context/AuthContext";
-import { inviteUserToRoom, regenerateRoomCode, fetchRoom } from "../api/rooms";
+import { inviteUserToRoom, regenerateRoomCode, fetchRoom, fetchRoomBySlug } from "../api/rooms";
 import PrimaryButton from "../components/PrimaryButton";
 
 
@@ -39,7 +39,32 @@ import PrimaryButton from "../components/PrimaryButton";
 type Props = NativeStackScreenProps<RootStackParamList, "RoomDetail">;
 
 export default function RoomDetailScreen({ route }: Props) {
-  const { roomId, roomName } = route.params;
+  const { slug } = route.params;
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [roomName, setRoomName] = useState<string>("");
+  const [loadingRoom, setLoadingRoom] = useState(true);
+
+  // Fetch room by slug to get roomId
+  useEffect(() => {
+    const loadRoomBySlug = async () => {
+      try {
+        setLoadingRoom(true);
+        const room = await fetchRoomBySlug(slug);
+        setRoomId(room.id);
+        setRoomName(room.name);
+      } catch (e: any) {
+        console.log("Error loading room by slug", e);
+        Alert.alert("Error", "Room not found");
+      } finally {
+        setLoadingRoom(false);
+      }
+    };
+    loadRoomBySlug();
+  }, [slug]);
+
+  // Only call hooks when we have a roomId
+  const roomDetail = useRoomDetail(roomId || "");
+  const roomChat = useRoomChat(roomId || "");
 
   const {
     tracks,
@@ -68,7 +93,7 @@ export default function RoomDetailScreen({ route }: Props) {
     handleSetNowPlaying,
     handleClearNowPlaying,
     handleChangeTheme,
-  } = useRoomDetail(roomId);
+  } = roomDetail;
 
   const { user } = useAuth();
   const isRoomCreator = user && roomCreatedBy === user.uid;
@@ -78,7 +103,7 @@ export default function RoomDetailScreen({ route }: Props) {
     loading: chatLoading,
     sending: chatSending,
     handleSend,
-  } = useRoomChat(roomId);
+  } = roomChat;
 
   const { isReady: spotifyReady, playSpotifyTrack } = useSpotifyPlayer();
 
@@ -157,7 +182,7 @@ export default function RoomDetailScreen({ route }: Props) {
   }
 
   async function handleInviteUser() {
-    if (!inviteEmail.trim()) {
+    if (!roomId || !inviteEmail.trim()) {
       Alert.alert("Hold up 🛑", "Please enter an email address");
       return;
     }
@@ -200,6 +225,7 @@ export default function RoomDetailScreen({ route }: Props) {
   }
 
   async function handleRegenerateCode() {
+    if (!roomId) return;
     try {
       setRegenerating(true);
       const result = await regenerateRoomCode(roomId);
@@ -220,6 +246,16 @@ export default function RoomDetailScreen({ route }: Props) {
     }
   }
 
+
+  if (loadingRoom || !roomId) {
+    return (
+      <GradientBackground themeId={roomTheme}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <Text style={{ color: colors.text }}>Loading room...</Text>
+        </View>
+      </GradientBackground>
+    );
+  }
 
   return (
     <GradientBackground themeId={roomTheme}>

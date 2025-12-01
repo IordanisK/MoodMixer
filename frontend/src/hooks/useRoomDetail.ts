@@ -52,6 +52,7 @@ export function useRoomDetail(roomId: string) {
   // --------- loaders ---------
 
   const loadTracks = async () => {
+    if (!roomId) return;
     try {
       setLoadingTracks(true);
       const data = await fetchTracks(roomId);
@@ -64,6 +65,7 @@ export function useRoomDetail(roomId: string) {
   };
 
   const loadMood = async () => {
+    if (!roomId) return;
     try {
       setLoadingMood(true);
       const data = await fetchMoodItems(roomId);
@@ -76,6 +78,7 @@ export function useRoomDetail(roomId: string) {
   };
 
 const loadRoom = async () => {
+  if (!roomId) return;
   try {
     const room: Room = await fetchRoom(roomId);
     setNowPlayingId(room.nowPlayingTrackId ?? null);
@@ -154,6 +157,8 @@ const loadRoom = async () => {
   // --------- socket + initial load ---------
 
   useEffect(() => {
+    if (!roomId) return;
+
     let unsubscribeEvents: (() => void) | null = null;
     let socketCleanup: (() => void) | null = null;
 
@@ -218,7 +223,7 @@ const loadRoom = async () => {
     return () => {
       if (unsubscribeEvents) unsubscribeEvents();
       if (socketCleanup) socketCleanup();
-      leaveRoom(roomId);
+      if (roomId) leaveRoom(roomId);
     };
   }, [roomId]);
 

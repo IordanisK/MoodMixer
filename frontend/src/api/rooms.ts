@@ -4,6 +4,7 @@ import api from "./client";
 export type Room = {
   id: string;
   name: string;
+  slug?: string;
   description?: string;
   createdBy?: string;
   invitedUsers?: string[];
@@ -41,6 +42,11 @@ export async function createRoom(data: { name: string; description?: string }) {
 
 export async function fetchRoom(roomId: string): Promise<Room> {
   const res = await api.get<Room>(`/rooms/${roomId}`);
+  return res.data;
+}
+
+export async function fetchRoomBySlug(slug: string): Promise<Room> {
+  const res = await api.get<Room>(`/rooms/slug/${slug}`);
   return res.data;
 }
 
