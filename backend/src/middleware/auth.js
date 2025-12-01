@@ -1,4 +1,3 @@
-// backend/src/middleware/auth.js
 import { admin } from "../firebaseAdmin.js";
 
 export async function authMiddleware(req, res, next) {
