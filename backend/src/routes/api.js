@@ -290,6 +290,57 @@ export function registerApiRoutes(app, io, db, admin) {
     }
   });
 
+  router.delete("/rooms/:roomId", async (req, res) => {
+    const { roomId } = req.params;
+    const userId = req.user.uid;
+
+    try {
+      const { hasAccess, room } = await checkRoomAccess(roomId, userId);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Only room creator can delete
+      if (room.createdBy !== userId) {
+        return res.status(403).json({ error: "Only room creator can delete the room" });
+      }
+
+      // Delete the room document (Firestore will cascade delete subcollections in some cases,
+      // but we should explicitly delete them to be safe)
+      const roomRef = db.collection("rooms").doc(roomId);
+      
+      // Delete subcollections
+      const batch = db.batch();
+      
+      // Delete tracks
+      const tracksSnapshot = await roomRef.collection("tracks").get();
+      tracksSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      
+      // Delete mood items
+      const moodItemsSnapshot = await roomRef.collection("moodItems").get();
+      moodItemsSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      
+      // Delete chat messages
+      const chatSnapshot = await roomRef.collection("chatMessages").get();
+      chatSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      
+      // Delete play history
+      const historySnapshot = await roomRef.collection("playHistory").get();
+      historySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      
+      // Delete the room itself
+      batch.delete(roomRef);
+      
+      await batch.commit();
+
+      res.json({ success: true, message: "Room deleted successfully" });
+    } catch (err) {
+      console.error("Error deleting room", err);
+      res.status(500).json({ error: "Failed to delete room" });
+    }
+  });
+
   router.post("/rooms", async (req, res) => {
     const { name, description } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
