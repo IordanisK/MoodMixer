@@ -10,6 +10,7 @@ export function useRoomChat(roomId: string) {
   const pendingMessageIds = useRef<Set<string>>(new Set());
 
   const loadMessages = async () => {
+    if (!roomId) return;
     try {
       setLoading(true);
       const data = await fetchChatMessages(roomId);
@@ -37,6 +38,8 @@ export function useRoomChat(roomId: string) {
   };
 
   useEffect(() => {
+    if (!roomId) return;
+
     let unsubscribeEvents: (() => void) | null = null;
 
     (async () => {

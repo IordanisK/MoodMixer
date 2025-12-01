@@ -89,6 +89,10 @@ export default function RoomListScreen({ navigation }: Props) {
         Alert.alert("Success 🎉", `Joined ${result.room.name}!`);
         // Reload rooms to show the newly joined room
         await loadRooms();
+        // Navigate to the room using slug
+        if (result.room.slug) {
+          navigation.navigate("RoomDetail", { slug: result.room.slug });
+        }
       }
       setJoinCode("");
     } catch (e: any) {
@@ -203,8 +207,7 @@ export default function RoomListScreen({ navigation }: Props) {
                   activeOpacity={0.85}
                   onPress={() =>
                     navigation.navigate("RoomDetail", {
-                      roomId: item.id,
-                      roomName: item.name,
+                      slug: item.slug || item.id, // Fallback to id if slug doesn't exist (for old rooms)
                     })
                   }
                 >
