@@ -11,6 +11,7 @@ env:
   PROJECT_ID: moodmixer-6bb54
   SERVICE_NAME: moodmixer-backend
   REGION: us-central1
+  ARTIFACT_REGISTRY_REPO: moodmixer-repo
 
 jobs:
   deploy:
@@ -55,24 +56,39 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker
+      - name: Create Artifact Registry repository (if not exists)
+        run: |
+          if ! gcloud artifacts repositories describe $ARTIFACT_REGISTRY_REPO --location=$REGION --format="value(name)" 2>/dev/null; then
+            echo "Creating Artifact Registry repository..."
+            gcloud artifacts repositories create $ARTIFACT_REGISTRY_REPO \
+              --repository-format=docker \
+              --location=$REGION \
+              --description="Docker repository for MoodMixer backend"
+          else
+            echo "Artifact Registry repository already exists"
+          fi
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev
 
       - name: Build Docker image
         working-directory: backend
         run: |
-          docker build -t gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA .
-          docker tag gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
+          IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$SERVICE_NAME"
+          docker build -t $IMAGE_URI:$GITHUB_SHA .
+          docker tag $IMAGE_URI:$GITHUB_SHA $IMAGE_URI:latest
 
-      - name: Push Docker image to GCR
+      - name: Push Docker image to Artifact Registry
         run: |
-          docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA
-          docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
+          IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$SERVICE_NAME"
+          docker push $IMAGE_URI:$GITHUB_SHA
+          docker push $IMAGE_URI:latest
 
       - name: Deploy to Cloud Run
         run: |
+          IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$SERVICE_NAME"
           gcloud run deploy $SERVICE_NAME \
-            --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
+            --image $IMAGE_URI:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \

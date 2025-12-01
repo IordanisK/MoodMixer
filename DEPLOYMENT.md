@@ -20,7 +20,8 @@ This guide explains how to set up GitHub Actions to deploy MoodMixer to Google C
    - Grant these roles:
      - `Cloud Run Admin` (deploy and manage services)
      - `Service Account User` (use service accounts)
-     - `Storage Admin` (push Docker images to GCR)
+     - `Artifact Registry Writer` (push Docker images to Artifact Registry)
+     - `Artifact Registry Repository Administrator` (create repositories if needed)
    - Click "Done"
    - Click on the service account → "Keys" tab → "Add Key" → "Create new key" → Select "JSON"
    - Download the JSON file
@@ -102,14 +103,18 @@ The frontend web build is deployed to **Firebase Hosting**.
 ### Backend
 
 ```bash
+# Configure Docker for Artifact Registry
+gcloud auth configure-docker us-central1-docker.pkg.dev
+
 # Build and push image
 cd backend
-docker build -t gcr.io/moodmixer-6bb54/moodmixer-backend:latest .
-docker push gcr.io/moodmixer-6bb54/moodmixer-backend:latest
+IMAGE_URI="us-central1-docker.pkg.dev/moodmixer-6bb54/moodmixer-repo/moodmixer-backend"
+docker build -t $IMAGE_URI:latest .
+docker push $IMAGE_URI:latest
 
 # Deploy to Cloud Run
 gcloud run deploy moodmixer-backend \
-  --image gcr.io/moodmixer-6bb54/moodmixer-backend:latest \
+  --image $IMAGE_URI:latest \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated
@@ -156,7 +161,7 @@ After backend is deployed, update the frontend to use the Cloud Run URL:
 ## CI/CD Flow
 
 1. **Push to main branch** triggers deployment workflows
-2. **Backend**: Builds Docker image → Pushes to GCR → Deploys to Cloud Run
+2. **Backend**: Builds Docker image → Pushes to Artifact Registry → Deploys to Cloud Run
 3. **Frontend**: Builds web export → Deploys to Firebase Hosting
 4. Both deployments run in parallel
 
