@@ -99,12 +99,13 @@ jobs:
           # Base64 encode Firebase service account to avoid JSON escaping issues
           FIREBASE_SA_B64=$(echo -n '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' | base64 | tr -d '\n')
           # Deploy with environment variables
+          # Note: PORT is automatically set by Cloud Run, don't set it manually
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_URI:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
-            --set-env-vars="PORT=8080,FIREBASE_SERVICE_ACCOUNT_B64=$FIREBASE_SA_B64" \
+            --set-env-vars="FIREBASE_SERVICE_ACCOUNT_B64=$FIREBASE_SA_B64" \
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
