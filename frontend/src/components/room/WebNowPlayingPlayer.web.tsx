@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 
 type Props = {
   url?: string;
@@ -42,7 +42,17 @@ export default function WebNowPlayingPlayer({ url, startedAt }: Props) {
     return Math.floor(diffMs / 1000);
   }, [startedAt, url]);
 
-  const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${offsetSeconds}&controls=1`;
+  // Use videoId and offsetSeconds as key to force iframe reload when track changes
+  const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${offsetSeconds}&controls=1&enablejsapi=1`;
+
+  useEffect(() => {
+    console.log("🎬 YouTube player updated:", {
+      videoId,
+      url,
+      startedAt,
+      offsetSeconds,
+    });
+  }, [videoId, url, startedAt, offsetSeconds]);
 
   return (
     <div
@@ -58,6 +68,7 @@ export default function WebNowPlayingPlayer({ url, startedAt }: Props) {
     >
       <div style={{ position: "relative", paddingTop: "56.25%" }}>
         <iframe
+          key={`${videoId}-${offsetSeconds}`}
           src={src}
           title="Now playing"
           style={{
