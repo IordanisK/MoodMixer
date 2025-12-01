@@ -3,13 +3,22 @@ import axios, { AxiosRequestHeaders } from "axios";
 import { Platform } from "react-native";
 import { auth } from "../firebase";
 
-const baseURL =
-  Platform.OS === "android"
-    ? "http://10.0.2.2:4000" // Android emulator
-    : "http://127.0.0.1:4000"; // iOS simulator + Web
+// Use environment variable for production, fallback to localhost for development
+const getBaseURL = () => {
+  // Check for environment variable (set during build)
+  if (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  
+  // Development URLs
+  if (Platform.OS === "android") {
+    return "http://10.0.2.2:4000"; // Android emulator
+  }
+  
+  return "http://127.0.0.1:4000"; // iOS simulator + Web
+};
 
-// If you later test on a real device, change baseURL to your machine IP:
-// const baseURL = "http://192.168.xx.xx:4000";
+const baseURL = getBaseURL();
 
 const api = axios.create({ baseURL });
 

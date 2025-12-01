@@ -1,0 +1,19 @@
+# Build outputs
+frontend/web-build/
+backend/dist/
+
+# Environment files
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
