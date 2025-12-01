@@ -31,10 +31,13 @@ import { useSpotifyPlayer } from "../spotify/useSpotifyPlayer";
 import api from "../api/client";
 import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "../context/AuthContext";
-import { inviteUserToRoom, regenerateRoomCode, fetchRoom, fetchRoomBySlug } from "../api/rooms";
+import {
+  inviteUserToRoom,
+  regenerateRoomCode,
+  fetchRoom,
+  fetchRoomBySlug,
+} from "../api/rooms";
 import PrimaryButton from "../components/PrimaryButton";
-
-
 
 type Props = NativeStackScreenProps<RootStackParamList, "RoomDetail">;
 
@@ -107,7 +110,6 @@ export default function RoomDetailScreen({ route }: Props) {
 
   const { isReady: spotifyReady, playSpotifyTrack } = useSpotifyPlayer();
 
-
   const headerAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView | null>(null);
   const [tracksSectionY, setTracksSectionY] = useState(0);
@@ -145,27 +147,73 @@ export default function RoomDetailScreen({ route }: Props) {
   };
 
   useEffect(() => {
-    if (Platform.OS !== "web") return;
-    if (!nowPlayingTrack) return;
+    if (Platform.OS !== "web") {
+      console.log("Not on web platform, skipping Spotify playback");
+      return;
+    }
+
+    if (!nowPlayingTrack) {
+      console.log("No now playing track");
+      return;
+    }
+
     if (
       nowPlayingTrack.provider !== "spotify" &&
       !(nowPlayingTrack.url && nowPlayingTrack.url.includes("spotify.com"))
     ) {
+      console.log(
+        "Track is not a Spotify track",
+        nowPlayingTrack.provider,
+        nowPlayingTrack.url
+      );
       return;
     }
 
-    if (!nowPlayingStartedAt) {
-      // fallback: start from 0 if we don't have a timestamp
-      playSpotifyTrack(nowPlayingTrack.url, 0);
+    if (!spotifyReady) {
+      console.log("Spotify player not ready yet");
       return;
     }
 
-    const offsetSeconds = Math.max(
-      0,
-      (Date.now() - nowPlayingStartedAt) / 1000
+    console.log(
+      "Attempting to play Spotify track for all users:",
+      nowPlayingTrack.url,
+      "startedAt:",
+      nowPlayingStartedAt
     );
-    playSpotifyTrack(nowPlayingTrack.url, offsetSeconds);
-  }, [nowPlayingTrack?.id, nowPlayingStartedAt, spotifyReady]);
+
+    const playTrack = async () => {
+      try {
+        if (!nowPlayingStartedAt) {
+          // fallback: start from 0 if we don't have a timestamp
+          await playSpotifyTrack(nowPlayingTrack.url, 0);
+        } else {
+          const offsetSeconds = Math.max(
+            0,
+            (Date.now() - nowPlayingStartedAt) / 1000
+          );
+          await playSpotifyTrack(nowPlayingTrack.url, offsetSeconds);
+        }
+      } catch (e: any) {
+        console.error("Error playing Spotify track:", e);
+        const errorMessage = e.message || "Failed to play Spotify track";
+
+        // Show user-friendly error message
+        if (Platform.OS === "web") {
+          alert(`Spotify Playback Error\n\n${errorMessage}`);
+        } else {
+          Alert.alert("Spotify Playback Error", errorMessage);
+        }
+      }
+    };
+
+    playTrack();
+  }, [
+    nowPlayingTrack?.id,
+    nowPlayingTrack?.url,
+    nowPlayingStartedAt,
+    spotifyReady,
+    playSpotifyTrack,
+  ]);
 
   async function handleConnectSpotify() {
     try {
@@ -205,16 +253,14 @@ export default function RoomDetailScreen({ route }: Props) {
 
   async function handleCopyRoomCode() {
     if (!roomCode) return;
-    
+
     try {
       if (Platform.OS === "web") {
         await navigator.clipboard.writeText(roomCode);
       } else {
         // For React Native, we'll use a simple approach
         // Users can manually copy if needed, or we can add @react-native-clipboard/clipboard later
-        Alert.alert("Room Code", roomCode, [
-          { text: "OK", style: "default" },
-        ]);
+        Alert.alert("Room Code", roomCode, [{ text: "OK", style: "default" }]);
         return;
       }
       Alert.alert("Copied! 📋", `Room code ${roomCode} copied to clipboard`);
@@ -229,10 +275,8 @@ export default function RoomDetailScreen({ route }: Props) {
     try {
       setRegenerating(true);
       const result = await regenerateRoomCode(roomId);
-      // Reload room to get updated code
-      const updatedRoom = await fetchRoom(roomId);
-      setRoomCode(updatedRoom.roomCode || null);
-      const message = roomCode 
+      // Room code will be updated via socket events or on next room load
+      const message = roomCode
         ? `New room code: ${result.roomCode}`
         : `Room code generated: ${result.roomCode}`;
       Alert.alert("Success 🎉", message);
@@ -246,11 +290,12 @@ export default function RoomDetailScreen({ route }: Props) {
     }
   }
 
-
   if (loadingRoom || !roomId) {
     return (
       <GradientBackground themeId={roomTheme}>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
           <Text style={{ color: colors.text }}>Loading room...</Text>
         </View>
       </GradientBackground>
@@ -307,12 +352,11 @@ export default function RoomDetailScreen({ route }: Props) {
                   )}
                   <TouchableOpacity onPress={handleConnectSpotify}>
                     <Text style={styles.connectSpotifyText}>
-                      Connect Spotify
+                      {spotifyReady ? "✓ Spotify Connected" : "Connect Spotify"}
                     </Text>
                   </TouchableOpacity>
                 </View>
               </View>
-
             </Animated.View>
 
             <RoomThemePicker value={roomTheme} onChange={handleChangeTheme} />
@@ -353,13 +397,23 @@ export default function RoomDetailScreen({ route }: Props) {
                     <PrimaryButton
                       title={regenerating ? "Generating..." : "Generate Code"}
                       onPress={handleRegenerateCode}
-                      disabled={regenerating}
+                      loading={regenerating}
                     />
                   </>
                 )}
               </View>
             )}
 
+            {nowPlayingTrack &&
+              nowPlayingTrack.provider === "spotify" &&
+              !spotifyReady &&
+              Platform.OS === "web" && (
+                <View style={styles.spotifyWarning}>
+                  <Text style={styles.spotifyWarningText}>
+                    ⚠️ Connect Spotify to hear this track playing
+                  </Text>
+                </View>
+              )}
             <NowPlayingBar
               track={nowPlayingTrack}
               meta={nowPlayingMeta}
@@ -396,11 +450,7 @@ export default function RoomDetailScreen({ route }: Props) {
               roomTheme={roomTheme}
             />
 
-            <View
-              onLayout={(e) =>
-                setTracksSectionY(e.nativeEvent.layout.y)
-              }
-            >
+            <View onLayout={(e) => setTracksSectionY(e.nativeEvent.layout.y)}>
               <TrackList
                 tracks={tracks}
                 loading={loadingTracks}
@@ -411,7 +461,6 @@ export default function RoomDetailScreen({ route }: Props) {
                 onSetNowPlaying={handleSetNowPlaying}
                 settingNowPlayingFor={settingNowPlayingFor}
               />
-
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -462,7 +511,7 @@ export default function RoomDetailScreen({ route }: Props) {
               <PrimaryButton
                 title={inviting ? "Inviting..." : "Send Invite"}
                 onPress={handleInviteUser}
-                disabled={inviting}
+                loading={inviting}
               />
             </View>
           </View>
@@ -514,6 +563,21 @@ const styles = StyleSheet.create({
   connectSpotifyText: {
     color: colors.textMuted,
     fontSize: 12,
+  },
+  spotifyWarning: {
+    backgroundColor: "rgba(239,68,68,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(239,68,68,0.3)",
+    borderRadius: spacing.sm,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    marginHorizontal: spacing.lg,
+  },
+  spotifyWarningText: {
+    color: "#ef4444",
+    fontSize: 13,
+    textAlign: "center",
+    fontWeight: "500",
   },
   modalOverlay: {
     flex: 1,
