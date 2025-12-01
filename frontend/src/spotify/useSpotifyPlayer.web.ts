@@ -35,11 +35,13 @@ export function useSpotifyPlayer() {
 
     const fetchToken = async () => {
       try {
+        console.log("Fetching Spotify player token...");
         const res = await api.get("/spotify/player-token");
         if (cancelled) return;
+        console.log("✅ Spotify player token received");
         setAccessToken(res.data.accessToken);
-      } catch (e) {
-        console.log("No Spotify token / not connected", e);
+      } catch (e: any) {
+        console.log("❌ No Spotify token / not connected", e.response?.status, e.response?.data);
         setAccessToken(null);
         setIsReady(false);
       }
@@ -53,27 +55,33 @@ export function useSpotifyPlayer() {
 
   // 2) Load SDK + init player when token is ready
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      console.log("No Spotify access token, skipping player initialization");
+      return;
+    }
+    
     if (playerInstance) {
       // already initialized
+      console.log("Spotify player already initialized, device ID:", playerDeviceId);
       setIsReady(!!playerDeviceId);
       return;
     }
 
-    const scriptId = "spotify-web-playback-sdk";
-    if (!document.getElementById(scriptId)) {
-      const script = document.createElement("script");
-      script.id = scriptId;
-      script.src = "https://sdk.scdn.co/spotify-player.js";
-      script.async = true;
-      document.body.appendChild(script);
-    }
+    const initPlayer = () => {
+      if (!window.Spotify) {
+        console.error("Spotify SDK not available");
+        return;
+      }
 
-    window.onSpotifyWebPlaybackSDKReady = () => {
       const tokenGetter = (cb: (t: string) => void) => {
-        if (accessToken) cb(accessToken);
+        if (accessToken) {
+          cb(accessToken);
+        } else {
+          console.error("No access token available for Spotify player");
+        }
       };
 
+      console.log("Initializing Spotify Web Playback SDK player...");
       const player = new window.Spotify.Player({
         name: "MoodMixer Web Player",
         getOAuthToken: tokenGetter,
@@ -81,41 +89,77 @@ export function useSpotifyPlayer() {
       });
 
       player.addListener("ready", ({ device_id }: any) => {
-        console.log("Spotify Player ready with device ID", device_id);
+        console.log("✅ Spotify Player ready with device ID", device_id);
         playerDeviceId = device_id;
         setIsReady(true);
       });
 
       player.addListener("not_ready", ({ device_id }: any) => {
-        console.log("Spotify Player not ready", device_id);
+        console.log("⚠️ Spotify Player not ready", device_id);
         if (playerDeviceId === device_id) {
           setIsReady(false);
           playerDeviceId = null;
         }
       });
 
-      player.addListener("initialization_error", ({ message }: any) =>
-        console.error(message)
-      );
-      player.addListener("authentication_error", ({ message }: any) =>
-        console.error(message)
-      );
-      player.addListener("account_error", ({ message }: any) =>
-        console.error(message)
-      );
-      player.addListener("playback_error", ({ message }: any) =>
-        console.error(message)
-      );
+      player.addListener("initialization_error", ({ message }: any) => {
+        console.error("❌ Spotify initialization error:", message);
+      });
+      player.addListener("authentication_error", ({ message }: any) => {
+        console.error("❌ Spotify authentication error:", message);
+      });
+      player.addListener("account_error", ({ message }: any) => {
+        console.error("❌ Spotify account error:", message);
+      });
+      player.addListener("playback_error", ({ message }: any) => {
+        console.error("❌ Spotify playback error:", message);
+      });
 
       player.connect();
       playerInstance = player;
+      console.log("Spotify player connecting...");
     };
+
+    // Check if SDK is already loaded
+    if (window.Spotify) {
+      console.log("Spotify SDK already loaded, initializing player...");
+      initPlayer();
+      return;
+    }
+
+    // SDK not loaded yet, set up callback and load script
+    const scriptId = "spotify-web-playback-sdk";
+    if (document.getElementById(scriptId)) {
+      // Script is loading, wait for it
+      console.log("Spotify SDK script already loading, waiting for ready callback...");
+      window.onSpotifyWebPlaybackSDKReady = initPlayer;
+    } else {
+      // Load the script
+      console.log("Loading Spotify Web Playback SDK script...");
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://sdk.scdn.co/spotify-player.js";
+      script.async = true;
+      script.onload = () => {
+        console.log("Spotify SDK script loaded");
+      };
+      script.onerror = () => {
+        console.error("Failed to load Spotify SDK script");
+      };
+      document.body.appendChild(script);
+      window.onSpotifyWebPlaybackSDKReady = initPlayer;
+    }
   }, [accessToken]);
 
   const playSpotifyTrack = useCallback(
     async (url: string, offsetSeconds: number) => {
-      if (!accessToken || !isReady || !playerDeviceId) {
-        console.log("Spotify player not ready");
+      if (!accessToken || !isReady || !playerDeviceId || !playerInstance) {
+        console.log("Spotify player not ready", {
+          hasToken: !!accessToken,
+          isReady,
+          hasDeviceId: !!playerDeviceId,
+          hasInstance: !!playerInstance,
+        });
         return;
       }
 
@@ -126,7 +170,87 @@ export function useSpotifyPlayer() {
       }
 
       try {
-        await fetch(
+        // First, check current device and transfer to Web Playback SDK if needed
+        const getPlayerResponse = await fetch(
+          `https://api.spotify.com/v1/me/player`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+            },
+          }
+        );
+
+        let needsTransfer = true;
+        if (getPlayerResponse.ok) {
+          // Check if response has content before parsing
+          const contentType = getPlayerResponse.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            try {
+              const playerData = await getPlayerResponse.json();
+              if (playerData.device && playerData.device.id === playerDeviceId) {
+                needsTransfer = false;
+                console.log("Web Playback SDK device is already active");
+              }
+            } catch (e) {
+              console.log("Could not parse player response as JSON, will transfer anyway");
+            }
+          } else if (getPlayerResponse.status === 204) {
+            // 204 No Content - no active player, need to transfer
+            console.log("No active player found, will transfer to Web SDK device");
+          }
+        }
+
+        // Transfer playback to Web Playback SDK device if needed
+        if (needsTransfer) {
+          console.log("Transferring playback to Web Playback SDK device...");
+          const transferResponse = await fetch(
+            `https://api.spotify.com/v1/me/player`,
+            {
+              method: "PUT",
+              headers: {
+                Authorization: "Bearer " + accessToken,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                device_ids: [playerDeviceId],
+                play: false, // Don't start playing yet, just transfer
+              }),
+            }
+          );
+
+          if (!transferResponse.ok && transferResponse.status !== 204) {
+            let errorText = "";
+            try {
+              errorText = await transferResponse.text();
+            } catch (e) {
+              console.log("Could not read error response text");
+            }
+            
+            console.error("Error transferring playback to Web SDK device:", {
+              status: transferResponse.status,
+              statusText: transferResponse.statusText,
+              error: errorText || "No error message",
+            });
+            
+            // If 403, the user may not be registered in Spotify Developer Dashboard
+            if (transferResponse.status === 403) {
+              const errorMessage = errorText && errorText.includes("not be registered")
+                ? "Your Spotify account needs to be added to the app's allowed users. Please contact the app administrator or check developer.spotify.com/dashboard"
+                : "Access denied. Please check your Spotify account settings.";
+              throw new Error(errorMessage);
+            }
+            
+            // For other errors, continue anyway - might work if device is already active
+          } else {
+            console.log("Successfully transferred to Web Playback SDK device");
+            // Small delay to ensure device transfer completes
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+        }
+
+        // Now play the track on the Web Playback SDK device
+        const playResponse = await fetch(
           `https://api.spotify.com/v1/me/player/play?device_id=${playerDeviceId}`,
           {
             method: "PUT",
@@ -140,11 +264,46 @@ export function useSpotifyPlayer() {
             }),
           }
         );
+
+        // Spotify API returns 204 No Content on success for PUT requests
+        if (playResponse.status === 204) {
+          console.log("✅ Spotify track playing on Web SDK device (204 No Content)");
+        } else if (!playResponse.ok) {
+          let errorText = "";
+          try {
+            errorText = await playResponse.text();
+          } catch (e) {
+            console.log("Could not read error response text");
+          }
+          
+          console.error("Error starting Spotify playback:", {
+            status: playResponse.status,
+            statusText: playResponse.statusText,
+            error: errorText || "No error message",
+          });
+          
+          // Provide more helpful error messages
+          if (playResponse.status === 403) {
+            const errorMessage = errorText && errorText.includes("not be registered")
+              ? "Your Spotify account needs to be added to the app's allowed users. Please contact the app administrator or check developer.spotify.com/dashboard"
+              : "Access denied. Please check your Spotify account settings.";
+            throw new Error(errorMessage);
+          } else if (playResponse.status === 404) {
+            throw new Error("No active device found. Please make sure Spotify Web Playback SDK is connected.");
+          } else {
+            throw new Error(`Failed to play track: ${playResponse.statusText || "Unknown error"}`);
+          }
+        } else {
+          console.log("✅ Spotify track playing on Web SDK device");
+        }
+
+        console.log("Spotify track playing on Web SDK device");
       } catch (e) {
-        console.log("Error starting Spotify playback", e);
+        console.error("Error starting Spotify playback", e);
+        throw e;
       }
     },
-    [accessToken, isReady]
+    [accessToken, isReady, playerDeviceId]
   );
 
   return { isReady: !!accessToken && isReady, playSpotifyTrack };
