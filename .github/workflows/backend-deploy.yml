@@ -23,16 +23,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug secret access
+      - name: Prepare GCP credentials
         run: |
           if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
-            echo "⚠️  WARNING: GCP_SA_KEY appears to be empty"
-            echo "Please verify the secret is set correctly in repository settings"
-          else
-            echo "✓ GCP_SA_KEY secret is accessible"
-            echo "Secret length: $(echo -n '${{ secrets.GCP_SA_KEY }}' | wc -c) characters"
+            echo "⚠️  ERROR: GCP_SA_KEY secret is empty or not set!"
+            echo ""
+            echo "Troubleshooting steps:"
+            echo "1. Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "2. Verify 'GCP_SA_KEY' exists (exact name, case-sensitive)"
+            echo "3. Click 'Update' and ensure the entire JSON content is pasted"
+            echo "4. The JSON should start with: {\"type\":\"service_account\",..."
+            echo "5. Make sure you copy the ENTIRE file content, including all lines"
+            exit 1
           fi
-        continue-on-error: true
+          # Write secret to file to ensure proper formatting
+          echo "${{ secrets.GCP_SA_KEY }}" > /tmp/gcp-key.json
+          echo "✓ GCP credentials written to file"
+          echo "File size: $(wc -c < /tmp/gcp-key.json) bytes"
+          # Validate it's valid JSON
+          if ! cat /tmp/gcp-key.json | jq . > /dev/null 2>&1; then
+            echo "⚠️  WARNING: Secret does not appear to be valid JSON"
+          else
+            echo "✓ Secret is valid JSON"
+          fi
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
