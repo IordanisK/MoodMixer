@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ChatMessage, fetchChatMessages, sendChatMessage } from "../api/chat";
 import { getSocket, subscribeToRoomEvents, leaveRoom } from "../sockets/socket";
+import { auth } from "../firebase";
 
 export function useRoomChat(roomId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const pendingMessageIds = useRef<Set<string>>(new Set());
 
   const loadMessages = async () => {
     try {
@@ -24,8 +26,9 @@ export function useRoomChat(roomId: string) {
     try {
       setSending(true);
       const msg = await sendChatMessage(roomId, text);
-      // optimistic update; socket will also push, but we'll de-dupe in listener
-      setMessages((prev) => [...prev, msg]);
+      // Mark this message ID as pending so we don't add it twice
+      pendingMessageIds.current.add(msg.id);
+      // Don't do optimistic update - let socket handle it to avoid duplicates
     } catch (e) {
       console.log("Error sending chat message", e);
     } finally {
@@ -43,7 +46,12 @@ export function useRoomChat(roomId: string) {
       unsubscribeEvents = subscribeToRoomEvents(roomId, {
         onChatMessageAdded: (msg) => {
           setMessages((prev) => {
-            if (prev.find((m) => m.id === msg.id)) return prev;
+            // Check if message already exists by ID
+            if (prev.find((m) => m.id === msg.id)) {
+              return prev;
+            }
+            // Remove from pending set if it was there
+            pendingMessageIds.current.delete(msg.id);
             return [...prev, msg];
           });
         },
@@ -52,8 +60,7 @@ export function useRoomChat(roomId: string) {
 
     return () => {
       if (unsubscribeEvents) unsubscribeEvents();
-      // leaveRoom here is optional; main hook already does it, so you can omit
-      // leaveRoom(roomId);
+      pendingMessageIds.current.clear();
     };
   }, [roomId]);
 
