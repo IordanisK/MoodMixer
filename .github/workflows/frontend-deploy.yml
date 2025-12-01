@@ -37,17 +37,27 @@ jobs:
 
       - name: Build web app
         run: |
-          # Use expo export:web (without --output-dir flag which isn't supported)
-          npx expo export:web
-          # Expo exports to 'dist' directory by default, copy to web-build for Firebase Hosting
+          # Use expo export for Metro bundler (expo export:web only works with Webpack)
+          npx expo export
+          # Expo exports to 'dist' directory, find web output and copy to web-build
           if [ -d "dist" ]; then
-            mkdir -p web-build
-            cp -r dist/* web-build/ 2>/dev/null || cp -r dist/. web-build/
-            echo "✓ Build output copied from dist/ to web-build/"
-          elif [ -d "web-build" ]; then
-            echo "✓ Build output already in web-build/"
+            # Check if there's a web subdirectory or if dist contains web files directly
+            if [ -d "dist/web" ]; then
+              mkdir -p web-build
+              cp -r dist/web/* web-build/ 2>/dev/null || cp -r dist/web/. web-build/
+              echo "✓ Build output copied from dist/web/ to web-build/"
+            elif [ -f "dist/index.html" ] || [ -f "dist/_expo/static/js" ]; then
+              mkdir -p web-build
+              cp -r dist/* web-build/ 2>/dev/null || cp -r dist/. web-build/
+              echo "✓ Build output copied from dist/ to web-build/"
+            else
+              echo "Error: Could not find web build output in dist/"
+              echo "dist/ contents:"
+              ls -la dist/
+              exit 1
+            fi
           else
-            echo "Error: No build output found"
+            echo "Error: dist directory not found after export"
             echo "Current directory contents:"
             ls -la
             exit 1
