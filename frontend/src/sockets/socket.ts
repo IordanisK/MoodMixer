@@ -90,10 +90,9 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
   }
 
   if (onNowPlayingChanged) {
-    socket.on("now-playing-changed", (payload: any) => {
-      if (payload.roomId === roomId) {
-        onNowPlayingChanged(payload.trackId ?? null);
-      }
+    socket.on("now-playing-changed", (trackId: string | null) => {
+      // Event is already scoped to the room by backend, so we can call directly
+      onNowPlayingChanged(trackId);
     });
   }
 
@@ -122,12 +121,13 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
   }
 
   if (onNowPlayingState) {
-  socket.on("now-playing-state", (payload: any) => {
-    const trackId = payload?.trackId ?? null;
-    const startedAt = payload?.startedAt ?? null;
-    onNowPlayingState(trackId, startedAt);
-  });
-}
+    socket.on("now-playing-state", (payload: any) => {
+      // Event is already scoped to the room by backend
+      const trackId = payload?.trackId ?? null;
+      const startedAt = payload?.startedAt ?? null;
+      onNowPlayingState(trackId, startedAt);
+    });
+  }
 
 
   // unsubscribe function

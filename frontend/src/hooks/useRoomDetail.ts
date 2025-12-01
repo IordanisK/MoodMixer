@@ -202,9 +202,11 @@ const loadRoom = async () => {
             });
           },
           onNowPlayingChanged: (trackId) => {
+            console.log("Now playing changed via socket:", trackId);
             setNowPlayingId(trackId);
           },
           onNowPlayingState: (trackId, startedAt) => {
+            console.log("Now playing state via socket:", trackId, "startedAt:", startedAt);
             setNowPlayingId(trackId);
             setNowPlayingStartedAt(startedAt ?? null);
           },
