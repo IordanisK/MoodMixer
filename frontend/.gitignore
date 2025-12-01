@@ -1,0 +1,48 @@
+# Node
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+.expo-web/
+web-build/
+dist/
+build/
+
+# React Native
+android/
+ios/
+*.keystore
+*.jks
+*.p12
+*.key
+*.mobileprovision
+*.orig
+
+# Metro / cache
+.npm/
+cache/
+.tmp/
+.temp/
+.tmp.*
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+
+# IDE stuff
+.vscode/
+.idea/
+
+# Env files
+.env
+.env.* 
+
+# Fastlane (if used)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
