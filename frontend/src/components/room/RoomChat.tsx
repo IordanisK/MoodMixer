@@ -26,6 +26,39 @@ type Props = {
 
 const GIPHY_API_KEY = "GlVGYHkr3WSBnllca54iNt0yFbjz7L65"; // Public beta key
 
+// Component to handle GIF messages with dynamic aspect ratio
+function GifMessage({ url }: { url: string }) {
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    Image.getSize(
+      url,
+      (width, height) => {
+        if (width && height) {
+          setAspectRatio(width / height);
+        }
+      },
+      () => {
+        // On error, use default square aspect ratio
+        setAspectRatio(1);
+      }
+    );
+  }, [url]);
+
+  return (
+    <View style={styles.messageGifContainer}>
+      <Image
+        source={{ uri: url }}
+        style={[
+          styles.messageGif,
+          aspectRatio ? { aspectRatio } : { aspectRatio: 1 },
+        ]}
+        resizeMode="contain"
+      />
+    </View>
+  );
+}
+
 export default function RoomChat({
   messages,
   loading,
@@ -289,11 +322,7 @@ export default function RoomChat({
             )}
             
             {messageType === "gif" && item.gifUrl && (
-              <Image
-                source={{ uri: item.gifUrl }}
-                style={styles.messageGif}
-                resizeMode="cover"
-              />
+              <GifMessage url={item.gifUrl} />
             )}
             
             {messageType === "voice" && item.voiceUrl && (
@@ -557,11 +586,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 4,
   },
+  messageGifContainer: {
+    maxWidth: "50%",
+    marginTop: 4,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
   messageGif: {
     width: "100%",
-    height: 120,
+    height: undefined,
     borderRadius: 8,
-    marginTop: 4,
   },
   voiceMessage: {
     flexDirection: "row",
