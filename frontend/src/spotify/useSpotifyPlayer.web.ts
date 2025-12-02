@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import api from "../api/client";
 
 declare global {
@@ -7,6 +7,8 @@ declare global {
     Spotify?: any;
   }
 }
+
+type OnTrackEndedCallback = () => void;
 
 function extractSpotifyTrackUri(url: string): string | null {
   try {
@@ -24,10 +26,14 @@ function extractSpotifyTrackUri(url: string): string | null {
 
 let playerInstance: any = null;
 let playerDeviceId: string | null = null;
+let onTrackEndedCallback: OnTrackEndedCallback | null = null;
+let lastPlayingUri: string | null = null;
+let wasPlaying = false;
 
 export function useSpotifyPlayer() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const onTrackEndedRef = useRef<OnTrackEndedCallback | null>(null);
 
   // 1) Fetch player token
   useEffect(() => {
@@ -113,6 +119,31 @@ export function useSpotifyPlayer() {
       });
       player.addListener("playback_error", ({ message }: any) => {
         console.error("❌ Spotify playback error:", message);
+      });
+
+      // Listen for track end
+      player.addListener("player_state_changed", (state: any) => {
+        if (!state) return;
+
+        const currentUri = state.track_window?.current_track?.uri;
+        const isPlaying = !state.paused;
+        const position = state.position;
+        const duration = state.duration;
+
+        // Detect track end: was playing, now paused, position is at or near the end
+        if (wasPlaying && state.paused && position === 0 && lastPlayingUri) {
+          // Track ended and Spotify auto-advanced to beginning (no next track)
+          console.log("🎵 Spotify track ended (detected pause at position 0)");
+          if (onTrackEndedCallback) {
+            onTrackEndedCallback();
+          }
+        }
+
+        // Update tracking variables
+        wasPlaying = isPlaying;
+        if (currentUri) {
+          lastPlayingUri = currentUri;
+        }
       });
 
       player.connect();
@@ -306,5 +337,10 @@ export function useSpotifyPlayer() {
     [accessToken, isReady, playerDeviceId]
   );
 
-  return { isReady: !!accessToken && isReady, playSpotifyTrack };
+  const setOnTrackEnded = useCallback((callback: OnTrackEndedCallback | null) => {
+    onTrackEndedRef.current = callback;
+    onTrackEndedCallback = callback;
+  }, []);
+
+  return { isReady: !!accessToken && isReady, playSpotifyTrack, setOnTrackEnded };
 }

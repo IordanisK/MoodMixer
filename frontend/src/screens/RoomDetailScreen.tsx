@@ -96,6 +96,7 @@ export default function RoomDetailScreen({ route }: Props) {
     handleSetNowPlaying,
     handleClearNowPlaying,
     handleChangeTheme,
+    handleTrackEnded,
   } = roomDetail;
 
   const { user } = useAuth();
@@ -108,7 +109,19 @@ export default function RoomDetailScreen({ route }: Props) {
     handleSend,
   } = roomChat;
 
-  const { isReady: spotifyReady, playSpotifyTrack } = useSpotifyPlayer();
+  const { isReady: spotifyReady, playSpotifyTrack, setOnTrackEnded } = useSpotifyPlayer();
+
+  // Set up Spotify track end callback
+  useEffect(() => {
+    if (setOnTrackEnded && handleTrackEnded) {
+      setOnTrackEnded(handleTrackEnded);
+    }
+    return () => {
+      if (setOnTrackEnded) {
+        setOnTrackEnded(null);
+      }
+    };
+  }, [setOnTrackEnded, handleTrackEnded]);
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView | null>(null);
@@ -430,6 +443,7 @@ export default function RoomDetailScreen({ route }: Props) {
                 <WebNowPlayingPlayer
                   url={nowPlayingTrack.url}
                   startedAt={nowPlayingStartedAt}
+                  onTrackEnded={handleTrackEnded}
                 />
               )}
 

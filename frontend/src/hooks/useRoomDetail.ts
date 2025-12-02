@@ -10,6 +10,7 @@ import {
   addMoodItem,
   fetchRoom,
   setNowPlaying,
+  advanceToNextTrack,
 } from "../api/rooms";
 import {
   TrackMetadata,
@@ -102,7 +103,8 @@ const loadRoom = async () => {
     try {
       setAdding(true);
       const newTrack = await addTrack(roomId, { url, note });
-      setTracks((prev) => [newTrack, ...prev]);
+      // Add to bottom of list (queue order)
+      setTracks((prev) => [...prev, newTrack]);
       setUrl("");
       setNote("");
     } catch (e) {
@@ -154,6 +156,26 @@ const loadRoom = async () => {
     }
   };
 
+  const handleTrackEnded = async () => {
+    console.log("🎵 Track ended, advancing to next track...");
+    try {
+      const result = await advanceToNextTrack(roomId);
+      console.log("Advanced to next track:", result.nextTrackId);
+      if (result.nextTrackId) {
+        setNowPlayingId(result.nextTrackId);
+        if (result.room?.nowPlayingStartedAt) {
+          setNowPlayingStartedAt(result.room.nowPlayingStartedAt);
+        }
+      } else {
+        setNowPlayingId(null);
+        setNowPlayingStartedAt(null);
+        console.log("Queue ended - no more tracks");
+      }
+    } catch (e) {
+      console.log("Error advancing to next track", e);
+    }
+  };
+
   // --------- socket + initial load ---------
 
   useEffect(() => {
@@ -187,7 +209,8 @@ const loadRoom = async () => {
           onTrackAdded: (track) => {
             setTracks((prev) => {
               if (prev.find((t) => t.id === track.id)) return prev;
-              return [track, ...prev];
+              // Add to bottom of list (queue order)
+              return [...prev, track];
             });
           },
           onTrackUpdated: (track) => {
@@ -288,5 +311,6 @@ const loadRoom = async () => {
     handleSetNowPlaying,
     handleClearNowPlaying,
     handleChangeTheme,
+    handleTrackEnded,
   };
 }

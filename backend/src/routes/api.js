@@ -525,7 +525,7 @@ export function registerApiRoutes(app, io, db, admin) {
         .collection("rooms")
         .doc(roomId)
         .collection("tracks")
-        .orderBy("createdAt", "desc")
+        .orderBy("createdAt", "asc")
         .get();
 
       const tracks = snapshot.docs.map((doc) => ({
@@ -759,6 +759,102 @@ export function registerApiRoutes(app, io, db, admin) {
     } catch (err) {
       console.error("Error setting now playing", err);
       res.status(500).json({ error: "Error setting now playing" });
+    }
+  });
+
+  /**
+   * ADVANCE TO NEXT TRACK IN QUEUE
+   * Called when current track ends - finds the next track in queue order
+   */
+  router.post("/rooms/:roomId/next-track", async (req, res) => {
+    const { roomId } = req.params;
+    const userId = req.user.uid;
+
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const roomRef = db.collection("rooms").doc(roomId);
+      const roomSnap = await roomRef.get();
+      const roomData = roomSnap.data();
+      const currentTrackId = roomData?.nowPlayingTrackId;
+
+      // Get all tracks in queue order (oldest first)
+      const tracksSnapshot = await db
+        .collection("rooms")
+        .doc(roomId)
+        .collection("tracks")
+        .orderBy("createdAt", "asc")
+        .get();
+
+      const tracks = tracksSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      if (tracks.length === 0) {
+        // No tracks in queue, clear now playing
+        await roomRef.update({
+          nowPlayingTrackId: null,
+          nowPlayingStartedAt: null,
+        });
+
+        io.to(roomId).emit("now-playing-state", {
+          trackId: null,
+          startedAt: null,
+        });
+
+        return res.json({ nextTrackId: null, message: "No tracks in queue" });
+      }
+
+      // Find the current track's index
+      let nextTrackId = null;
+      if (currentTrackId) {
+        const currentIndex = tracks.findIndex((t) => t.id === currentTrackId);
+        if (currentIndex !== -1 && currentIndex < tracks.length - 1) {
+          // There's a next track
+          nextTrackId = tracks[currentIndex + 1].id;
+        }
+        // If currentIndex is last track or not found, nextTrackId stays null (queue ended)
+      } else {
+        // No current track, start from the first one
+        nextTrackId = tracks[0].id;
+      }
+
+      if (nextTrackId) {
+        await roomRef.update({
+          nowPlayingTrackId: nextTrackId,
+          nowPlayingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const updatedSnap = await roomRef.get();
+        const updatedRoom = mapRoomDoc(updatedSnap);
+
+        io.to(roomId).emit("now-playing-state", {
+          trackId: nextTrackId,
+          startedAt: updatedRoom.nowPlayingStartedAt,
+        });
+
+        return res.json({ nextTrackId, room: updatedRoom });
+      } else {
+        // Queue ended, clear now playing
+        await roomRef.update({
+          nowPlayingTrackId: null,
+          nowPlayingStartedAt: null,
+        });
+
+        io.to(roomId).emit("now-playing-state", {
+          trackId: null,
+          startedAt: null,
+        });
+
+        return res.json({ nextTrackId: null, message: "Queue ended" });
+      }
+    } catch (err) {
+      console.error("Error advancing to next track", err);
+      res.status(500).json({ error: "Error advancing to next track" });
     }
   });
 

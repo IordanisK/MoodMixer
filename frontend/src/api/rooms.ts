@@ -135,3 +135,10 @@ export async function deleteRoom(roomId: string) {
   );
   return res.data;
 }
+
+export async function advanceToNextTrack(roomId: string) {
+  const res = await api.post<{ nextTrackId: string | null; room?: Room; message?: string }>(
+    `/rooms/${roomId}/next-track`
+  );
+  return res.data;
+}
