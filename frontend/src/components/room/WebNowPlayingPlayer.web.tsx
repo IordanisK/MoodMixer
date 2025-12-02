@@ -244,8 +244,7 @@ export default function WebNowPlayingPlayer({
     <div
       style={{
         width: "100%",
-        maxWidth: 720,
-        margin: "0 auto 16px auto",
+        marginBottom: 16,
         borderRadius: 16,
         overflow: "hidden",
         boxShadow: "0 18px 45px rgba(15,23,42,0.85)",
@@ -256,7 +255,8 @@ export default function WebNowPlayingPlayer({
         ref={containerRef}
         style={{
           position: "relative",
-          paddingTop: "56.25%",
+          width: "100%",
+          aspectRatio: "16 / 9",
           backgroundColor: "#000",
         }}
       >
