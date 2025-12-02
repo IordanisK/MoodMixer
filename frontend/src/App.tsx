@@ -3,6 +3,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Platform } from "react-native";
 import { useAuth, AuthProvider } from "./context/AuthContext";
+import { AppProvider } from "./context/AppContext";
 import AuthScreen from "./screens/AuthScreen";
 import RoomDetailScreen from "./screens/RoomDetailScreen";
 import RoomListScreen from "./screens/RoomListScreen";
@@ -55,7 +56,9 @@ function AppNavigator() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppNavigator />
+      <AppProvider>
+        <AppNavigator />
+      </AppProvider>
     </AuthProvider>
   );
 }

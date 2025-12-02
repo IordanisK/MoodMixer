@@ -13,12 +13,12 @@ const getBaseURL = () => {
   if (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
-  
+
   // Development URLs
   if (Platform.OS === "android") {
     return "http://10.0.2.2:4000";
   }
-  
+
   return "http://127.0.0.1:4000";
 };
 
@@ -39,12 +39,10 @@ export async function getSocket(): Promise<Socket> {
 
     s.on("connect", () => {
       socket = s;
-      console.log("Socket connected", s.id);
       resolve(s);
     });
 
     s.on("connect_error", (err) => {
-      console.log("Socket connect error", err);
       reject(err);
     });
   });
@@ -67,8 +65,11 @@ type Handlers = {
   onTracksReordered?: (tracks: any[]) => void;
   onMoodItemAdded?: (item: any) => void;
   onNowPlayingChanged?: (trackId: string | null) => void;
-  onNowPlayingState?: (trackId: string | null, startedAt?: number | null) => void;
-  onRoomUsersChanged?: (count: number) => void; 
+  onNowPlayingState?: (
+    trackId: string | null,
+    startedAt?: number | null
+  ) => void;
+  onRoomUsersChanged?: (count: number) => void;
   onRoomThemeChanged?: (theme: RoomThemeId) => void;
   onChatMessageAdded?: (message: ChatMessage) => void;
 };
@@ -76,102 +77,137 @@ type Handlers = {
 export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
   if (!socket) return () => {};
 
-  const { onTrackAdded, onTrackUpdated, onTrackRemoved, onTracksReordered, onMoodItemAdded, onNowPlayingChanged, onNowPlayingState, onRoomUsersChanged, onRoomThemeChanged, onChatMessageAdded, } =
-    handlers;
+  const {
+    onTrackAdded,
+    onTrackUpdated,
+    onTrackRemoved,
+    onTracksReordered,
+    onMoodItemAdded,
+    onNowPlayingChanged,
+    onNowPlayingState,
+    onRoomUsersChanged,
+    onRoomThemeChanged,
+    onChatMessageAdded,
+  } = handlers;
+
+  // Store handlers for proper cleanup
+  const handlerRefs: Array<{
+    event: string;
+    handler: (...args: any[]) => void;
+  }> = [];
 
   if (onTrackAdded) {
-    socket.on("track-added", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onTrackAdded(payload.track);
       }
-    });
+    };
+    socket.on("track-added", handler);
+    handlerRefs.push({ event: "track-added", handler });
   }
 
   if (onTrackUpdated) {
-    socket.on("track-updated", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onTrackUpdated(payload.track);
       }
-    });
+    };
+    socket.on("track-updated", handler);
+    handlerRefs.push({ event: "track-updated", handler });
   }
 
   if (onTrackRemoved) {
-    socket.on("track-removed", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onTrackRemoved(payload.trackId);
       }
-    });
+    };
+    socket.on("track-removed", handler);
+    handlerRefs.push({ event: "track-removed", handler });
   }
 
   if (onTracksReordered) {
-    socket.on("tracks-reordered", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onTracksReordered(payload.tracks);
       }
-    });
+    };
+    socket.on("tracks-reordered", handler);
+    handlerRefs.push({ event: "tracks-reordered", handler });
   }
 
   if (onMoodItemAdded) {
-    socket.on("mood-item-added", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onMoodItemAdded(payload.item);
       }
-    });
+    };
+    socket.on("mood-item-added", handler);
+    handlerRefs.push({ event: "mood-item-added", handler });
   }
 
   if (onNowPlayingChanged) {
-    socket.on("now-playing-changed", (trackId: string | null) => {
-      // Event is already scoped to the room by backend, so we can call directly
-      onNowPlayingChanged(trackId);
-    });
+    const handler = (payload: any) => {
+      const trackId =
+        typeof payload === "string" || payload === null
+          ? payload
+          : payload.roomId === roomId
+          ? payload.trackId
+          : null;
+      if (trackId !== undefined) {
+        onNowPlayingChanged(trackId);
+      }
+    };
+    socket.on("now-playing-changed", handler);
+    handlerRefs.push({ event: "now-playing-changed", handler });
   }
 
   if (onRoomUsersChanged) {
-    socket.on("room-users", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onRoomUsersChanged(payload.count);
       }
-    });
+    };
+    socket.on("room-users", handler);
+    handlerRefs.push({ event: "room-users", handler });
   }
 
   if (onRoomThemeChanged) {
-    socket.on("room-theme-changed", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onRoomThemeChanged(payload.theme);
       }
-    });
+    };
+    socket.on("room-theme-changed", handler);
+    handlerRefs.push({ event: "room-theme-changed", handler });
   }
 
   if (onChatMessageAdded) {
-    socket.on("chat-message-added", (payload: any) => {
+    const handler = (payload: any) => {
       if (payload.roomId === roomId) {
         onChatMessageAdded(payload.message);
       }
-    });
+    };
+    socket.on("chat-message-added", handler);
+    handlerRefs.push({ event: "chat-message-added", handler });
   }
 
   if (onNowPlayingState) {
-    socket.on("now-playing-state", (payload: any) => {
-      // Event is already scoped to the room by backend
+    const handler = (payload: any) => {
       const trackId = payload?.trackId ?? null;
       const startedAt = payload?.startedAt ?? null;
       onNowPlayingState(trackId, startedAt);
-    });
+    };
+    socket.on("now-playing-state", handler);
+    handlerRefs.push({ event: "now-playing-state", handler });
   }
-
 
   // unsubscribe function
   return () => {
     if (!socket) return;
-    if (onTrackAdded) socket.off("track-added");
-    if (onTrackUpdated) socket.off("track-updated");
-    if (onTrackRemoved) socket.off("track-removed");
-    if (onTracksReordered) socket.off("tracks-reordered");
-    if (onMoodItemAdded) socket.off("mood-item-added");
-    if (onNowPlayingChanged) socket.off("now-playing-changed");
-    if (onNowPlayingState) socket.off("now-playing-state");
-    if (onRoomUsersChanged) socket.off("room-users");
-    if (onRoomThemeChanged) socket.off("room-theme-changed");
-    if (onChatMessageAdded) socket.off("chat-message-added");
+    const currentSocket = socket;
+    handlerRefs.forEach(({ event, handler }) => {
+      currentSocket.off(event, handler);
+    });
   };
 }

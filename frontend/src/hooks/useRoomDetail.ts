@@ -78,9 +78,9 @@ export function useRoomDetail(roomId: string) {
     if (!url.trim()) return;
     try {
       setAdding(true);
-      const newTrack = await addTrack(roomId, { url, note });
-      // Add to bottom of list (queue order)
-      setTracks((prev) => [...prev, newTrack]);
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the track at the same time
+      await addTrack(roomId, { url, note });
     } catch (e) {
       console.log("Error adding track", e);
     } finally {
@@ -90,8 +90,9 @@ export function useRoomDetail(roomId: string) {
 
   const handleVote = async (trackId: string, value: 1 | -1) => {
     try {
-      const updated = await voteTrack(roomId, trackId, value);
-      setTracks((prev) => prev.map((t) => (t.id === trackId ? updated : t)));
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the vote update at the same time
+      await voteTrack(roomId, trackId, value);
     } catch (e) {
       console.log("Error voting", e);
     }
@@ -100,8 +101,9 @@ export function useRoomDetail(roomId: string) {
   const handleSetNowPlaying = async (trackId: string) => {
     try {
       setSettingNowPlayingFor(trackId);
-      const updatedRoom = await setNowPlaying(roomId, trackId);
-      setNowPlayingId(updatedRoom.nowPlayingTrackId ?? null);
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the now playing change at the same time
+      await setNowPlaying(roomId, trackId);
     } catch (e) {
       console.log("Error setting now playing", e);
     } finally {
@@ -112,9 +114,9 @@ export function useRoomDetail(roomId: string) {
   const handleClearNowPlaying = async () => {
     try {
       setSettingNowPlayingFor("clear");
-      const updatedRoom = await setNowPlaying(roomId, null);
-      setNowPlayingId(updatedRoom.nowPlayingTrackId ?? null);
-      setNowPlayingStartedAt(null);
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the clear at the same time
+      await setNowPlaying(roomId, null);
     } catch (e) {
       console.log("Error clearing now playing", e);
     } finally {
@@ -149,8 +151,9 @@ export function useRoomDetail(roomId: string) {
 
   const handleDeleteTrack = async (trackId: string) => {
     try {
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the deletion at the same time
       await deleteTrack(roomId, trackId);
-      setTracks((prev) => prev.filter((t) => t.id !== trackId));
     } catch (e) {
       console.log("Error deleting track", e);
     }
@@ -161,28 +164,23 @@ export function useRoomDetail(roomId: string) {
     direction: "up" | "down"
   ) => {
     try {
-      const result = await reorderTrack(roomId, trackId, direction);
-      if (result.tracks) {
-        setTracks(result.tracks);
-      }
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the reorder at the same time
+      await reorderTrack(roomId, trackId, direction);
     } catch (e) {
       console.log("Error reordering track", e);
     }
   };
 
   const handleReorderTracks = async (newTracks: Track[]) => {
-    // Optimistically update local state
-    setTracks(newTracks);
-
     try {
+      // Don't optimistically update - let the socket event handle it
+      // This ensures all users see the reorder at the same time
       const trackIds = newTracks.map((t) => t.id);
-      const result = await reorderAllTracks(roomId, trackIds);
-      if (result.tracks) {
-        setTracks(result.tracks);
-      }
+      await reorderAllTracks(roomId, trackIds);
     } catch (e) {
       console.log("Error reordering tracks", e);
-      // Revert to original order on error
+      // Reload tracks on error to get the correct state
       loadTracks();
     }
   };
@@ -212,7 +210,9 @@ export function useRoomDetail(roomId: string) {
         unsubscribeEvents = subscribeToRoomEvents(roomId, {
           onTrackAdded: (track) => {
             setTracks((prev) => {
-              if (prev.find((t) => t.id === track.id)) return prev;
+              if (prev.find((t) => t.id === track.id)) {
+                return prev;
+              }
               // Add to bottom of list (queue order)
               return [...prev, track];
             });
@@ -229,16 +229,9 @@ export function useRoomDetail(roomId: string) {
             setTracks(tracks);
           },
           onNowPlayingChanged: (trackId) => {
-            console.log("Now playing changed via socket:", trackId);
             setNowPlayingId(trackId);
           },
           onNowPlayingState: (trackId, startedAt) => {
-            console.log(
-              "Now playing state via socket:",
-              trackId,
-              "startedAt:",
-              startedAt
-            );
             setNowPlayingId(trackId);
             setNowPlayingStartedAt(startedAt ?? null);
           },

@@ -16,16 +16,16 @@ type Props = {
 
 function extractYouTubeId(url: string): string | null {
   if (!url) return null;
-  
+
   try {
     // Add protocol if missing
     let fullUrl = url;
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       fullUrl = "https://" + url;
     }
-    
+
     const u = new URL(fullUrl);
-    
+
     if (u.hostname.includes("youtube.com") || u.hostname.includes("youtu.be")) {
       if (u.hostname.includes("youtu.be")) {
         return u.pathname.replace("/", "").split("?")[0] || null;
@@ -40,14 +40,14 @@ function extractYouTubeId(url: string): string | null {
       /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
       /[?&]v=([a-zA-Z0-9_-]{11})/,
     ];
-    
+
     for (const pattern of patterns) {
       const match = url.match(pattern);
       if (match && match[1]) {
         return match[1];
       }
     }
-    
+
     return null;
   }
 }
@@ -70,7 +70,6 @@ function loadYouTubeAPI(): Promise<void> {
     ytApiLoading = true;
 
     window.onYouTubeIframeAPIReady = () => {
-      console.log("✅ YouTube IFrame API ready");
       ytApiLoaded = true;
       ytApiCallbacks.forEach((cb) => cb());
       ytApiCallbacks = [];
@@ -86,7 +85,12 @@ function loadYouTubeAPI(): Promise<void> {
   });
 }
 
-export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded, onPlayerReady }: Props) {
+export default function WebNowPlayingPlayer({
+  url,
+  startedAt,
+  onTrackEnded,
+  onPlayerReady,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const onTrackEndedRef = useRef(onTrackEnded);
@@ -108,9 +112,8 @@ export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded, onPl
     if (playerRef.current) {
       try {
         playerRef.current.stopVideo();
-        console.log("⏹️ YouTube playback stopped");
       } catch (e) {
-        console.log("Error stopping YouTube:", e);
+        // Error stopping YouTube
       }
     }
   }, []);
@@ -207,12 +210,11 @@ export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded, onPl
         },
         events: {
           onReady: (event: any) => {
-            console.log("🎬 YouTube player ready");
             event.target.playVideo();
           },
           onStateChange: handleStateChange,
           onError: (event: any) => {
-            console.error("🎬 YouTube player error:", event.data);
+            console.error("YouTube player error:", event.data);
           },
         },
       });
@@ -235,10 +237,6 @@ export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded, onPl
       }
     };
   }, []);
-
-  useEffect(() => {
-    console.log("🎬 YouTube player:", { videoId, url, startedAt, offsetSeconds });
-  }, [videoId, url, startedAt, offsetSeconds]);
 
   if (!url || !videoId) return null;
 
@@ -265,7 +263,7 @@ export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded, onPl
         {/* YouTube player will be injected here */}
       </div>
       <style>{`
-        #${containerRef.current?.firstElementChild?.id || 'yt-player'} {
+        #${containerRef.current?.firstElementChild?.id || "yt-player"} {
           position: absolute !important;
           top: 0 !important;
           left: 0 !important;
