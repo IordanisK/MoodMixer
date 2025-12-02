@@ -14,12 +14,28 @@ const getBaseURL = () => {
     return process.env.EXPO_PUBLIC_API_URL;
   }
 
+  // Determine if we're in local development
+  const isLocal = (() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const hostname = window.location.hostname;
+      return (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "0.0.0.0"
+      );
+    }
+    // For React Native, assume local development unless explicitly set
+    return true;
+  })();
+
   // Development URLs
   if (Platform.OS === "android") {
     return "http://10.0.2.2:4000";
   }
 
-  return "http://127.0.0.1:4000";
+  return isLocal
+    ? "http://127.0.0.1:4000"
+    : "https://moodmixer-backend-dxbpzs77wa-uc.a.run.app";
 };
 
 const baseURL = getBaseURL();
@@ -42,7 +58,12 @@ export async function getSocket(): Promise<Socket> {
     });
 
     s.on("connect", () => {
-      console.log("✅ Socket connected:", s.id, "transport:", s.io.engine.transport.name);
+      console.log(
+        "✅ Socket connected:",
+        s.id,
+        "transport:",
+        s.io.engine.transport.name
+      );
       socket = s;
       resolve(s);
     });
@@ -68,7 +89,9 @@ export function leaveRoom(roomId: string) {
     console.warn(`⚠️ Cannot leave room ${roomId}: socket not available`);
     return;
   }
-  console.log(`🔌 Leaving room ${roomId} via leaveRoom() (socket: ${socket.id})`);
+  console.log(
+    `🔌 Leaving room ${roomId} via leaveRoom() (socket: ${socket.id})`
+  );
   socket.emit("leave-room", roomId);
 }
 
@@ -86,10 +109,19 @@ type Handlers = {
   onRoomUsersChanged?: (count: number) => void;
   onRoomThemeChanged?: (theme: RoomThemeId) => void;
   onChatMessageAdded?: (message: ChatMessage) => void;
-  onTestUserJoined?: (payload: { roomId: string; userId: string; userName: string; timestamp: number }) => void;
+  onTestUserJoined?: (payload: {
+    roomId: string;
+    userId: string;
+    userName: string;
+    timestamp: number;
+  }) => void;
 };
 
-export function subscribeToRoomEvents(roomId: string, handlers: Handlers, socketInstance?: Socket) {
+export function subscribeToRoomEvents(
+  roomId: string,
+  handlers: Handlers,
+  socketInstance?: Socket
+) {
   // Use provided socket instance or fall back to module-level socket
   const s = socketInstance || socket;
   if (!s) {
@@ -217,7 +249,9 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers, socket
     const handler = (payload: any) => {
       // Filter by roomId if provided, otherwise accept (for backward compatibility with direct socket.emit)
       if (payload?.roomId && payload.roomId !== roomId) {
-        console.log(`⚠️ now-playing-state event room mismatch: expected ${roomId}, got ${payload.roomId}`);
+        console.log(
+          `⚠️ now-playing-state event room mismatch: expected ${roomId}, got ${payload.roomId}`
+        );
         return;
       }
       const trackId = payload?.trackId ?? null;
@@ -235,7 +269,9 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers, socket
         console.log(`✅ Test event matches room ${roomId}, calling handler`);
         onTestUserJoined(payload);
       } else {
-        console.log(`⚠️ Test event room mismatch: expected ${roomId}, got ${payload.roomId}`);
+        console.log(
+          `⚠️ Test event room mismatch: expected ${roomId}, got ${payload.roomId}`
+        );
       }
     };
     s.on("test-user-joined", handler);
