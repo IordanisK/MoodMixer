@@ -706,6 +706,7 @@ export function registerApiRoutes(app, io, db, admin) {
           nowPlayingStartedAt: null,
         });
         io.to(roomId).emit("now-playing-state", {
+          roomId,
           trackId: null,
           startedAt: null,
         });
@@ -944,6 +945,7 @@ export function registerApiRoutes(app, io, db, admin) {
 
       io.to(roomId).emit("now-playing-changed", { roomId, trackId: trackId || null });
       io.to(roomId).emit("now-playing-state", {
+        roomId,
         trackId: trackId || null,
         startedAt,
       });
@@ -985,6 +987,7 @@ export function registerApiRoutes(app, io, db, admin) {
         });
 
         io.to(roomId).emit("now-playing-state", {
+          roomId,
           trackId: null,
           startedAt: null,
         });
@@ -1016,6 +1019,7 @@ export function registerApiRoutes(app, io, db, admin) {
         const updatedRoom = mapRoomDoc(updatedSnap);
 
         io.to(roomId).emit("now-playing-state", {
+          roomId,
           trackId: nextTrackId,
           startedAt: updatedRoom.nowPlayingStartedAt,
         });
@@ -1029,6 +1033,7 @@ export function registerApiRoutes(app, io, db, admin) {
         });
 
         io.to(roomId).emit("now-playing-state", {
+          roomId,
           trackId: null,
           startedAt: null,
         });

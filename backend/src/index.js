@@ -87,6 +87,17 @@ async function checkRoomAccess(roomId, userId) {
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id, "user:", socket.user?.uid);
 
+  /**
+   * JOIN ROOM
+   * 
+   * IMPORTANT: All socket operations are room-based, NOT user-based.
+   * - Sockets join rooms using roomId: socket.join(roomId)
+   * - Events are broadcast to rooms: io.to(roomId).emit(...)
+   * - This ensures all users in a room receive the same events
+   * 
+   * When a user joins a room, they automatically leave any previous rooms
+   * to ensure each socket is only in one room at a time.
+   */
   socket.on("join-room", async (roomId) => {
     const userId = socket.user?.uid;
     if (!userId) {
@@ -99,6 +110,24 @@ io.on("connection", (socket) => {
       if (!hasAccess) {
         socket.emit("error", { message: "Access denied to this room" });
         return;
+      }
+
+      // IMPORTANT: Leave all other rooms before joining the new one
+      // This ensures the socket is only in one room at a time
+      // Socket.io rooms: socket.rooms includes the socket's own ID room, so we skip that
+      for (const existingRoomId of socket.rooms) {
+        if (existingRoomId === socket.id) continue; // Skip the socket's own ID room
+        if (existingRoomId !== roomId) {
+          console.log(`🔄 User ${userId} leaving room ${existingRoomId} before joining ${roomId}`);
+          socket.leave(existingRoomId);
+          if (roomMembers[existingRoomId]) {
+            roomMembers[existingRoomId] = Math.max(0, roomMembers[existingRoomId] - 1);
+            io.to(existingRoomId).emit("room-users", {
+              roomId: existingRoomId,
+              count: roomMembers[existingRoomId],
+            });
+          }
+        }
       }
 
       socket.join(roomId);
@@ -129,6 +158,7 @@ io.on("connection", (socket) => {
           : null;
 
         socket.emit("now-playing-state", {
+          roomId,
           trackId: nowPlayingTrackId,
           startedAt: nowPlayingStartedAt,
         });

@@ -64,7 +64,11 @@ export async function joinRoom(roomId: string) {
 }
 
 export function leaveRoom(roomId: string) {
-  if (!socket) return;
+  if (!socket) {
+    console.warn(`⚠️ Cannot leave room ${roomId}: socket not available`);
+    return;
+  }
+  console.log(`🔌 Leaving room ${roomId} via leaveRoom() (socket: ${socket.id})`);
   socket.emit("leave-room", roomId);
 }
 
@@ -211,6 +215,11 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers, socket
 
   if (onNowPlayingState) {
     const handler = (payload: any) => {
+      // Filter by roomId if provided, otherwise accept (for backward compatibility with direct socket.emit)
+      if (payload?.roomId && payload.roomId !== roomId) {
+        console.log(`⚠️ now-playing-state event room mismatch: expected ${roomId}, got ${payload.roomId}`);
+        return;
+      }
       const trackId = payload?.trackId ?? null;
       const startedAt = payload?.startedAt ?? null;
       onNowPlayingState(trackId, startedAt);

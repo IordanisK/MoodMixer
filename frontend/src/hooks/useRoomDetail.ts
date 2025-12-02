@@ -267,6 +267,7 @@ export function useRoomDetail(roomId: string) {
         }
 
         socketCleanup = () => {
+          console.log(`🔌 Leaving room ${roomId} (socket: ${socket.id})`);
           socket.emit("leave-room", roomId);
           socket.off("connect", handleConnect);
           socket.off("disconnect", handleDisconnect);
@@ -277,9 +278,13 @@ export function useRoomDetail(roomId: string) {
     })();
 
     return () => {
+      console.log(`🧹 Cleaning up room ${roomId}`);
+      // Unsubscribe from all event listeners first
       if (unsubscribeEvents) unsubscribeEvents();
+      // Leave the room and clean up socket handlers
       if (socketCleanup) socketCleanup();
-      if (roomId) leaveRoom(roomId);
+      // Note: We don't call leaveRoom() here because socketCleanup already handles it
+      // and we want to use the captured socket instance, not the module-level one
     };
   }, [roomId]);
 
