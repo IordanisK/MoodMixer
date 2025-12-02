@@ -94,6 +94,14 @@ io.on("connection", (socket) => {
       roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
       console.log(`User ${userId} joined room ${roomId}`);
 
+      // TEST EVENT: Broadcast to all users in the room when someone joins
+      io.to(roomId).emit("test-user-joined", {
+        roomId,
+        userId,
+        userName: socket.user?.name || socket.user?.email || "Unknown User",
+        timestamp: Date.now(),
+      });
+
       // Send current now-playing state to the newly joined user
       const roomDoc = await db.collection("rooms").doc(roomId).get();
       if (roomDoc.exists) {

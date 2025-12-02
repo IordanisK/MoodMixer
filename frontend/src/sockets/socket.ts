@@ -72,6 +72,7 @@ type Handlers = {
   onRoomUsersChanged?: (count: number) => void;
   onRoomThemeChanged?: (theme: RoomThemeId) => void;
   onChatMessageAdded?: (message: ChatMessage) => void;
+  onTestUserJoined?: (payload: { roomId: string; userId: string; userName: string; timestamp: number }) => void;
 };
 
 export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
@@ -88,6 +89,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
     onRoomUsersChanged,
     onRoomThemeChanged,
     onChatMessageAdded,
+    onTestUserJoined,
   } = handlers;
 
   // Store handlers for proper cleanup
@@ -200,6 +202,16 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
     };
     socket.on("now-playing-state", handler);
     handlerRefs.push({ event: "now-playing-state", handler });
+  }
+
+  if (onTestUserJoined) {
+    const handler = (payload: any) => {
+      if (payload.roomId === roomId) {
+        onTestUserJoined(payload);
+      }
+    };
+    socket.on("test-user-joined", handler);
+    handlerRefs.push({ event: "test-user-joined", handler });
   }
 
   // unsubscribe function

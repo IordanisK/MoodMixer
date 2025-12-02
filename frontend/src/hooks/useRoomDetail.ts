@@ -241,6 +241,15 @@ export function useRoomDetail(roomId: string) {
           onRoomThemeChanged: (theme) => {
             setRoomTheme(theme);
           },
+          onTestUserJoined: (payload) => {
+            console.log(
+              `🧪 TEST EVENT: User "${payload.userName}" (${
+                payload.userId
+              }) joined room ${payload.roomId} at ${new Date(
+                payload.timestamp
+              ).toLocaleTimeString()}`
+            );
+          },
         });
 
         // Join the room after subscribing to events
