@@ -20,7 +20,6 @@ import { colors, spacing } from "../theme";
 import { useRoomDetail } from "../hooks/useRoomDetail";
 import NowPlayingBar from "../components/room/NowPlayingBar";
 import AddTrackCard from "../components/room/AddTrackCard";
-import MoodStrip from "../components/room/MoodStrip";
 import TrackList from "../components/room/TrackList";
 import RoomThemePicker from "../components/room/RoomThemePicker";
 import { useRoomChat } from "../hooks/useRoomChat";
@@ -71,9 +70,7 @@ export default function RoomDetailScreen({ route }: Props) {
 
   const {
     tracks,
-    moodItems,
     loadingTracks,
-    loadingMood,
     adding,
     nowPlayingId,
     nowPlayingTrack,
@@ -88,7 +85,6 @@ export default function RoomDetailScreen({ route }: Props) {
     roomCode,
     handleAddTrack,
     handleVote,
-    handleSelectGif,
     handleSetNowPlaying,
     handleClearNowPlaying,
     handleChangeTheme,
@@ -106,7 +102,10 @@ export default function RoomDetailScreen({ route }: Props) {
     messages,
     loading: chatLoading,
     sending: chatSending,
-    handleSend,
+    handleSendText,
+    handleSendImage,
+    handleSendGif,
+    handleSendVoice,
   } = roomChat;
 
   const { isReady: spotifyReady, playSpotifyTrack, setOnTrackEnded, stopSpotify } = useSpotifyPlayer();
@@ -489,17 +488,14 @@ export default function RoomDetailScreen({ route }: Props) {
               onAdd={handleAddTrack}
             />
 
-            <MoodStrip
-              items={moodItems}
-              loading={loadingMood}
-              onSelectGif={handleSelectGif}
-            />
-
             <RoomChat
               messages={messages}
               loading={chatLoading}
               sending={chatSending}
-              onSend={handleSend}
+              onSendText={handleSendText}
+              onSendImage={handleSendImage}
+              onSendGif={handleSendGif}
+              onSendVoice={handleSendVoice}
               roomTheme={roomTheme}
             />
 

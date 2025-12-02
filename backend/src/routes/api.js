@@ -1110,11 +1110,21 @@ export function registerApiRoutes(app, io, db, admin) {
 
   router.post("/rooms/:roomId/chat", async (req, res) => {
     const { roomId } = req.params;
-    const { text } = req.body;
+    const { type = "text", text, imageUrl, gifUrl, voiceUrl, voiceDuration } = req.body;
     const userId = req.user.uid;
 
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: "text is required" });
+    // Validate based on message type
+    if (type === "text" && (!text || !text.trim())) {
+      return res.status(400).json({ error: "text is required for text messages" });
+    }
+    if (type === "image" && !imageUrl) {
+      return res.status(400).json({ error: "imageUrl is required for image messages" });
+    }
+    if (type === "gif" && !gifUrl) {
+      return res.status(400).json({ error: "gifUrl is required for gif messages" });
+    }
+    if (type === "voice" && !voiceUrl) {
+      return res.status(400).json({ error: "voiceUrl is required for voice messages" });
     }
 
     try {
@@ -1126,11 +1136,28 @@ export function registerApiRoutes(app, io, db, admin) {
         req.user.name || req.user.displayName || req.user.email || "Anon DJ";
 
       const msg = {
-        text: text.trim(),
+        type,
         userId,
         userName,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
+
+      // Add content based on type
+      if (type === "text" && text) {
+        msg.text = text.trim();
+      }
+      if (type === "image" && imageUrl) {
+        msg.imageUrl = imageUrl;
+      }
+      if (type === "gif" && gifUrl) {
+        msg.gifUrl = gifUrl;
+      }
+      if (type === "voice") {
+        msg.voiceUrl = voiceUrl;
+        if (voiceDuration) {
+          msg.voiceDuration = voiceDuration;
+        }
+      }
 
       const colRef = db
         .collection("rooms")
@@ -1150,6 +1177,69 @@ export function registerApiRoutes(app, io, db, admin) {
     } catch (err) {
       console.error("Error adding chat message", err);
       res.status(500).json({ error: "Error adding chat message" });
+    }
+  });
+
+  // Upload image for chat - returns the data URL directly (simpler than Firebase Storage)
+  router.post("/rooms/:roomId/chat/upload-image", async (req, res) => {
+    const { roomId } = req.params;
+    const { image } = req.body; // base64 encoded image (data URL)
+    const userId = req.user.uid;
+
+    if (!image) {
+      return res.status(400).json({ error: "image is required" });
+    }
+
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // For simplicity, we store the image as a data URL directly
+      // This avoids needing to configure Firebase Storage buckets
+      // For production, you'd want to upload to Firebase Storage or another service
+      
+      // Validate it's a valid data URL
+      if (!image.startsWith("data:image/")) {
+        return res.status(400).json({ error: "Invalid image format" });
+      }
+
+      // Return the data URL directly as the image URL
+      res.status(201).json({ url: image });
+    } catch (err) {
+      console.error("Error processing chat image", err);
+      res.status(500).json({ error: "Error processing image" });
+    }
+  });
+
+  // Upload voice message for chat - returns the data URL directly
+  router.post("/rooms/:roomId/chat/upload-voice", async (req, res) => {
+    const { roomId } = req.params;
+    const { audio, duration } = req.body; // base64 encoded audio (data URL)
+    const userId = req.user.uid;
+
+    if (!audio) {
+      return res.status(400).json({ error: "audio is required" });
+    }
+
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // For simplicity, we store the audio as a data URL directly
+      // Validate it's a valid data URL
+      if (!audio.startsWith("data:audio/")) {
+        return res.status(400).json({ error: "Invalid audio format" });
+      }
+
+      // Return the data URL directly as the voice URL
+      res.status(201).json({ url: audio, duration });
+    } catch (err) {
+      console.error("Error processing voice message", err);
+      res.status(500).json({ error: "Error processing voice message" });
     }
   });
 

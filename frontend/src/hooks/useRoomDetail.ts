@@ -2,12 +2,9 @@ import { useEffect, useState } from "react";
 import {
   Track,
   Room,
-  MoodItem,
   fetchTracks,
   addTrack,
   voteTrack,
-  fetchMoodItems,
-  addMoodItem,
   fetchRoom,
   setNowPlaying,
   advanceToNextTrack,
@@ -29,9 +26,7 @@ import { updateRoomTheme } from "../api/rooms";
 
 export function useRoomDetail(roomId: string) {
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [moodItems, setMoodItems] = useState<MoodItem[]>([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
-  const [loadingMood, setLoadingMood] = useState(false);
 
   const [adding, setAdding] = useState(false);
 
@@ -63,19 +58,6 @@ export function useRoomDetail(roomId: string) {
       console.log("Error loading tracks", e);
     } finally {
       setLoadingTracks(false);
-    }
-  };
-
-  const loadMood = async () => {
-    if (!roomId) return;
-    try {
-      setLoadingMood(true);
-      const data = await fetchMoodItems(roomId);
-      setMoodItems(data);
-    } catch (e) {
-      console.log("Error loading mood items", e);
-    } finally {
-      setLoadingMood(false);
     }
   };
 
@@ -119,15 +101,6 @@ const loadRoom = async () => {
       setTracks((prev) => prev.map((t) => (t.id === trackId ? updated : t)));
     } catch (e) {
       console.log("Error voting", e);
-    }
-  };
-
-  const handleSelectGif = async (gifUrl: string) => {
-    try {
-      const item = await addMoodItem(roomId, { type: "gif", url: gifUrl });
-      setMoodItems((prev) => [item, ...prev]);
-    } catch (e) {
-      console.log("Error adding mood item", e);
     }
   };
 
@@ -227,7 +200,7 @@ const loadRoom = async () => {
 
     (async () => {
       try {
-        await Promise.all([loadTracks(), loadMood(), loadRoom()]);
+        await Promise.all([loadTracks(), loadRoom()]);
 
         const socket = await getSocket();
 
@@ -264,12 +237,6 @@ const loadRoom = async () => {
           },
           onTracksReordered: (tracks) => {
             setTracks(tracks);
-          },
-          onMoodItemAdded: (item) => {
-            setMoodItems((prev) => {
-              if (prev.find((m) => m.id === item.id)) return prev;
-              return [item, ...prev];
-            });
           },
           onNowPlayingChanged: (trackId) => {
             console.log("Now playing changed via socket:", trackId);
@@ -333,9 +300,7 @@ const loadRoom = async () => {
 
   return {
     tracks,
-    moodItems,
     loadingTracks,
-    loadingMood,
     adding,
     nowPlayingId,
     nowPlayingTrack,
@@ -350,7 +315,6 @@ const loadRoom = async () => {
     roomCode,
     handleAddTrack,
     handleVote,
-    handleSelectGif,
     handleSetNowPlaying,
     handleClearNowPlaying,
     handleChangeTheme,

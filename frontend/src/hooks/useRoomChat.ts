@@ -1,7 +1,12 @@
-import { useEffect, useState, useRef } from "react";
-import { ChatMessage, fetchChatMessages, sendChatMessage } from "../api/chat";
-import { getSocket, subscribeToRoomEvents, leaveRoom } from "../sockets/socket";
-import { auth } from "../firebase";
+import { useEffect, useState, useRef, useCallback } from "react";
+import {
+  ChatMessage,
+  fetchChatMessages,
+  sendChatMessage,
+  uploadChatImage,
+  uploadVoiceMessage,
+} from "../api/chat";
+import { getSocket, subscribeToRoomEvents } from "../sockets/socket";
 
 export function useRoomChat(roomId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -22,14 +27,12 @@ export function useRoomChat(roomId: string) {
     }
   };
 
-  const handleSend = async (text: string) => {
+  const handleSendText = useCallback(async (text: string) => {
     if (!text.trim()) return;
     try {
       setSending(true);
-      const msg = await sendChatMessage(roomId, text);
-      // Mark this message ID as pending so we don't add it twice from socket
+      const msg = await sendChatMessage(roomId, { type: "text", text });
       pendingMessageIds.current.add(msg.id);
-      // Optimistic update - add message immediately
       setMessages((prev) => {
         if (prev.find((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
@@ -39,7 +42,65 @@ export function useRoomChat(roomId: string) {
     } finally {
       setSending(false);
     }
-  };
+  }, [roomId]);
+
+  const handleSendImage = useCallback(async (imageBase64: string) => {
+    try {
+      setSending(true);
+      // Upload image first
+      const { url } = await uploadChatImage(roomId, imageBase64);
+      // Then send message with image URL
+      const msg = await sendChatMessage(roomId, { type: "image", imageUrl: url });
+      pendingMessageIds.current.add(msg.id);
+      setMessages((prev) => {
+        if (prev.find((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+    } catch (e) {
+      console.log("Error sending image message", e);
+    } finally {
+      setSending(false);
+    }
+  }, [roomId]);
+
+  const handleSendGif = useCallback(async (gifUrl: string) => {
+    try {
+      setSending(true);
+      const msg = await sendChatMessage(roomId, { type: "gif", gifUrl });
+      pendingMessageIds.current.add(msg.id);
+      setMessages((prev) => {
+        if (prev.find((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+    } catch (e) {
+      console.log("Error sending GIF message", e);
+    } finally {
+      setSending(false);
+    }
+  }, [roomId]);
+
+  const handleSendVoice = useCallback(async (audioBase64: string, duration: number) => {
+    try {
+      setSending(true);
+      // Upload voice first
+      const { url } = await uploadVoiceMessage(roomId, audioBase64, duration);
+      // Then send message with voice URL
+      const msg = await sendChatMessage(roomId, {
+        type: "voice",
+        voiceUrl: url,
+        voiceDuration: duration,
+      });
+      pendingMessageIds.current.add(msg.id);
+      setMessages((prev) => {
+        if (prev.find((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+    } catch (e) {
+      console.log("Error sending voice message", e);
+    } finally {
+      setSending(false);
+    }
+  }, [roomId]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -52,18 +113,15 @@ export function useRoomChat(roomId: string) {
       const socket = await getSocket();
       
       // Ensure we've joined the room before subscribing to events
-      // (useRoomDetail also joins, but this ensures no race condition)
       socket.emit("join-room", roomId);
       
       unsubscribeEvents = subscribeToRoomEvents(roomId, {
         onChatMessageAdded: (msg) => {
           console.log("📨 Chat message received via socket:", msg);
           setMessages((prev) => {
-            // Check if message already exists by ID
             if (prev.find((m) => m.id === msg.id)) {
               return prev;
             }
-            // Remove from pending set if it was there
             pendingMessageIds.current.delete(msg.id);
             return [...prev, msg];
           });
@@ -81,6 +139,9 @@ export function useRoomChat(roomId: string) {
     messages,
     loading,
     sending,
-    handleSend,
+    handleSendText,
+    handleSendImage,
+    handleSendGif,
+    handleSendVoice,
   };
 }
