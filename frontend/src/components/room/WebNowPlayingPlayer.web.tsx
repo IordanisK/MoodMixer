@@ -1,86 +1,58 @@
-import React, { useMemo, useEffect, useRef, useCallback } from "react";
-
-declare global {
-  interface Window {
-    YT?: any;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
+import React, { useMemo, useEffect, useRef } from "react";
 
 type Props = {
   url?: string;
-  startedAt?: number | null; // ms since epoch
+  startedAt?: number | null;
   onTrackEnded?: () => void;
 };
 
 function extractYouTubeId(url: string): string | null {
+  if (!url) return null;
+  
   try {
-    const u = new URL(url);
-    if (
-      u.hostname.includes("youtube.com") ||
-      u.hostname.includes("youtu.be")
-    ) {
+    // Add protocol if missing
+    let fullUrl = url;
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      fullUrl = "https://" + url;
+    }
+    
+    const u = new URL(fullUrl);
+    
+    if (u.hostname.includes("youtube.com") || u.hostname.includes("youtu.be")) {
       if (u.hostname.includes("youtu.be")) {
-        // short link: https://youtu.be/<id>
-        return u.pathname.replace("/", "") || null;
+        // Short link: https://youtu.be/<id>
+        return u.pathname.replace("/", "").split("?")[0] || null;
       }
-      // regular: https://www.youtube.com/watch?v=<id>
+      // Regular: https://www.youtube.com/watch?v=<id>
       const v = u.searchParams.get("v");
       return v || null;
     }
     return null;
-  } catch {
+  } catch (e) {
+    console.log("Error extracting YouTube ID:", e, "from URL:", url);
+    
+    // Fallback: try regex extraction
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+      /[?&]v=([a-zA-Z0-9_-]{11})/,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
     return null;
   }
 }
 
-let apiLoaded = false;
-let apiReadyPromise: Promise<void> | null = null;
-
-function loadYouTubeAPI(): Promise<void> {
-  if (apiLoaded && window.YT?.Player) {
-    return Promise.resolve();
-  }
-
-  if (apiReadyPromise) {
-    return apiReadyPromise;
-  }
-
-  apiReadyPromise = new Promise((resolve) => {
-    // Check if YT API is already available
-    if (window.YT?.Player) {
-      apiLoaded = true;
-      resolve();
-      return;
-    }
-
-    // Set the callback
-    window.onYouTubeIframeAPIReady = () => {
-      console.log("✅ YouTube IFrame API ready");
-      apiLoaded = true;
-      resolve();
-    };
-
-    // Load the script if not already present
-    if (!document.getElementById("youtube-iframe-api")) {
-      const script = document.createElement("script");
-      script.id = "youtube-iframe-api";
-      script.src = "https://www.youtube.com/iframe_api";
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  });
-
-  return apiReadyPromise;
-}
-
 export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded }: Props) {
-  const playerRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const currentVideoIdRef = useRef<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const onTrackEndedRef = useRef(onTrackEnded);
+  const lastVideoIdRef = useRef<string | null>(null);
 
-  // Keep onTrackEnded ref updated
   useEffect(() => {
     onTrackEndedRef.current = onTrackEnded;
   }, [onTrackEnded]);
@@ -92,119 +64,49 @@ export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded }: Pr
     const diffMs = Date.now() - startedAt;
     if (diffMs <= 0) return 0;
     return Math.floor(diffMs / 1000);
-  }, [startedAt, url]);
+  }, [startedAt]);
 
-  const handlePlayerStateChange = useCallback((event: any) => {
-    // YT.PlayerState.ENDED === 0
-    if (event.data === 0) {
-      console.log("🎬 YouTube video ended!");
-      if (onTrackEndedRef.current) {
-        onTrackEndedRef.current();
-      }
-    }
-  }, []);
-
+  // Listen for YouTube postMessage events to detect video end
   useEffect(() => {
-    if (!videoId) {
-      // Clean up player if no video
-      if (playerRef.current) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-        currentVideoIdRef.current = null;
-      }
-      return;
-    }
+    if (!videoId) return;
 
-    let cancelled = false;
-
-    const initPlayer = async () => {
-      await loadYouTubeAPI();
-      if (cancelled) return;
-
-      // Same video, just seek if needed
-      if (playerRef.current && currentVideoIdRef.current === videoId) {
-        try {
-          const currentTime = playerRef.current.getCurrentTime();
-          // Only seek if difference is more than 3 seconds
-          if (Math.abs(currentTime - offsetSeconds) > 3) {
-            playerRef.current.seekTo(offsetSeconds, true);
+    const handleMessage = (event: MessageEvent) => {
+      // YouTube sends messages from youtube.com
+      if (!event.origin.includes("youtube.com")) return;
+      
+      try {
+        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+        
+        // YouTube player state: 0 = ended
+        if (data.event === "onStateChange" && data.info === 0) {
+          console.log("🎬 YouTube video ended (via postMessage)");
+          if (onTrackEndedRef.current) {
+            onTrackEndedRef.current();
           }
-        } catch (e) {
-          console.log("Error seeking", e);
         }
-        return;
-      }
-
-      // Different video or first load
-      if (playerRef.current) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
-
-      if (!containerRef.current) return;
-
-      // Create player container
-      const playerId = `yt-player-${Date.now()}`;
-      const playerDiv = document.createElement("div");
-      playerDiv.id = playerId;
-      containerRef.current.innerHTML = "";
-      containerRef.current.appendChild(playerDiv);
-
-      playerRef.current = new window.YT.Player(playerId, {
-        videoId: videoId,
-        playerVars: {
-          autoplay: 1,
-          start: offsetSeconds,
-          controls: 1,
-          modestbranding: 1,
-          rel: 0,
-        },
-        events: {
-          onStateChange: handlePlayerStateChange,
-          onReady: (event: any) => {
-            console.log("🎬 YouTube player ready, starting playback");
-            event.target.playVideo();
-          },
-          onError: (event: any) => {
-            console.error("🎬 YouTube player error:", event.data);
-          },
-        },
-      });
-
-      currentVideoIdRef.current = videoId;
-    };
-
-    initPlayer();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [videoId, offsetSeconds, handlePlayerStateChange]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-        playerRef.current = null;
+      } catch {
+        // Not a JSON message, ignore
       }
     };
-  }, []);
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [videoId]);
 
   useEffect(() => {
-    console.log("🎬 YouTube player updated:", {
-      videoId,
-      url,
-      startedAt,
-      offsetSeconds,
-    });
+    console.log("🎬 YouTube player:", { videoId, url, startedAt, offsetSeconds });
   }, [videoId, url, startedAt, offsetSeconds]);
 
   if (!url || !videoId) return null;
+
+  // Build YouTube embed URL with enablejsapi for postMessage communication
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${offsetSeconds}&controls=1&enablejsapi=1&modestbranding=1&rel=0&origin=${encodeURIComponent(window.location.origin)}`;
+
+  // Force iframe reload when video changes
+  const key = `${videoId}-${lastVideoIdRef.current !== videoId ? Date.now() : 'stable'}`;
+  if (lastVideoIdRef.current !== videoId) {
+    lastVideoIdRef.current = videoId;
+  }
 
   return (
     <div
@@ -218,32 +120,24 @@ export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded }: Pr
         border: "1px solid rgba(148,163,184,0.3)",
       }}
     >
-      <div
-        ref={containerRef}
-        className="yt-player-container"
-        style={{
-          position: "relative",
-          paddingTop: "56.25%",
-        }}
-      >
-        {/* YouTube player will be injected here */}
+      <div style={{ position: "relative", paddingTop: "56.25%" }}>
+        <iframe
+          key={key}
+          ref={iframeRef}
+          src={embedUrl}
+          title="Now playing"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            border: "none",
+          }}
+          allow="autoplay; encrypted-media; fullscreen"
+          allowFullScreen
+        />
       </div>
-      <style>{`
-        .yt-player-container > div {
-          position: absolute !important;
-          top: 0 !important;
-          left: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
-        }
-        .yt-player-container iframe {
-          position: absolute !important;
-          top: 0 !important;
-          left: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
-        }
-      `}</style>
     </div>
   );
 }
