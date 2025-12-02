@@ -63,6 +63,8 @@ export function leaveRoom(roomId: string) {
 type Handlers = {
   onTrackAdded?: (track: any) => void;
   onTrackUpdated?: (track: any) => void;
+  onTrackRemoved?: (trackId: string) => void;
+  onTracksReordered?: (tracks: any[]) => void;
   onMoodItemAdded?: (item: any) => void;
   onNowPlayingChanged?: (trackId: string | null) => void;
   onNowPlayingState?: (trackId: string | null, startedAt?: number | null) => void;
@@ -74,7 +76,7 @@ type Handlers = {
 export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
   if (!socket) return () => {};
 
-  const { onTrackAdded, onTrackUpdated, onMoodItemAdded, onNowPlayingChanged, onNowPlayingState, onRoomUsersChanged, onRoomThemeChanged, onChatMessageAdded, } =
+  const { onTrackAdded, onTrackUpdated, onTrackRemoved, onTracksReordered, onMoodItemAdded, onNowPlayingChanged, onNowPlayingState, onRoomUsersChanged, onRoomThemeChanged, onChatMessageAdded, } =
     handlers;
 
   if (onTrackAdded) {
@@ -89,6 +91,22 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
     socket.on("track-updated", (payload: any) => {
       if (payload.roomId === roomId) {
         onTrackUpdated(payload.track);
+      }
+    });
+  }
+
+  if (onTrackRemoved) {
+    socket.on("track-removed", (payload: any) => {
+      if (payload.roomId === roomId) {
+        onTrackRemoved(payload.trackId);
+      }
+    });
+  }
+
+  if (onTracksReordered) {
+    socket.on("tracks-reordered", (payload: any) => {
+      if (payload.roomId === roomId) {
+        onTracksReordered(payload.tracks);
       }
     });
   }
@@ -147,6 +165,8 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
     if (!socket) return;
     if (onTrackAdded) socket.off("track-added");
     if (onTrackUpdated) socket.off("track-updated");
+    if (onTrackRemoved) socket.off("track-removed");
+    if (onTracksReordered) socket.off("tracks-reordered");
     if (onMoodItemAdded) socket.off("mood-item-added");
     if (onNowPlayingChanged) socket.off("now-playing-changed");
     if (onNowPlayingState) socket.off("now-playing-state");

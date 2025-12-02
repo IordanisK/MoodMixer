@@ -142,3 +142,26 @@ export async function advanceToNextTrack(roomId: string) {
   );
   return res.data;
 }
+
+export async function deleteTrack(roomId: string, trackId: string) {
+  const res = await api.delete<{ success: boolean; trackId: string }>(
+    `/rooms/${roomId}/tracks/${trackId}`
+  );
+  return res.data;
+}
+
+export async function reorderTrack(roomId: string, trackId: string, direction: "up" | "down") {
+  const res = await api.post<{ success: boolean; tracks?: Track[] }>(
+    `/rooms/${roomId}/tracks/${trackId}/reorder`,
+    { direction }
+  );
+  return res.data;
+}
+
+export async function reorderAllTracks(roomId: string, trackIds: string[]) {
+  const res = await api.post<{ success: boolean; tracks?: Track[] }>(
+    `/rooms/${roomId}/tracks/reorder-all`,
+    { trackIds }
+  );
+  return res.data;
+}

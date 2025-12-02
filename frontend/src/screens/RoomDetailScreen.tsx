@@ -74,8 +74,6 @@ export default function RoomDetailScreen({ route }: Props) {
     moodItems,
     loadingTracks,
     loadingMood,
-    url,
-    note,
     adding,
     nowPlayingId,
     nowPlayingTrack,
@@ -88,8 +86,6 @@ export default function RoomDetailScreen({ route }: Props) {
     roomTheme,
     roomCreatedBy,
     roomCode,
-    setUrl,
-    setNote,
     handleAddTrack,
     handleVote,
     handleSelectGif,
@@ -97,6 +93,10 @@ export default function RoomDetailScreen({ route }: Props) {
     handleClearNowPlaying,
     handleChangeTheme,
     handleTrackEnded,
+    handleSkipTrack,
+    handleDeleteTrack,
+    handleReorderTrack,
+    handleReorderTracks,
   } = roomDetail;
 
   const { user } = useAuth();
@@ -433,6 +433,7 @@ export default function RoomDetailScreen({ route }: Props) {
               roomTheme={roomTheme}
               settingNowPlayingFor={settingNowPlayingFor}
               onClear={handleClearNowPlaying}
+              onSkip={handleSkipTrack}
             />
 
             {nowPlayingTrack &&
@@ -448,10 +449,6 @@ export default function RoomDetailScreen({ route }: Props) {
               )}
 
             <AddTrackCard
-              url={url}
-              note={note}
-              setUrl={setUrl}
-              setNote={setNote}
               adding={adding}
               onAdd={handleAddTrack}
             />
@@ -479,6 +476,9 @@ export default function RoomDetailScreen({ route }: Props) {
                 roomTheme={roomTheme}
                 onVote={handleVote}
                 onSetNowPlaying={handleSetNowPlaying}
+                onDeleteTrack={handleDeleteTrack}
+                onReorderTrack={handleReorderTrack}
+                onReorderTracks={handleReorderTracks}
                 settingNowPlayingFor={settingNowPlayingFor}
               />
             </View>

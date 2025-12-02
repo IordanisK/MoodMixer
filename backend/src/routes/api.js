@@ -509,6 +509,34 @@ export function registerApiRoutes(app, io, db, admin) {
   });
 
   /**
+   * Helper to get tracks with proper position handling
+   */
+  async function getTracksWithPositions(roomId) {
+    // First try to get tracks ordered by createdAt (works for all tracks)
+    const tracksSnapshot = await db
+      .collection("rooms")
+      .doc(roomId)
+      .collection("tracks")
+      .orderBy("createdAt", "asc")
+      .get();
+
+    // Assign positions based on current order if missing
+    let tracks = tracksSnapshot.docs.map((doc, index) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        position: data.position !== undefined ? data.position : index,
+      };
+    });
+
+    // Sort by position
+    tracks.sort((a, b) => a.position - b.position);
+
+    return tracks;
+  }
+
+  /**
    * TRACKS
    */
   router.get("/rooms/:roomId/tracks", async (req, res) => {
@@ -521,17 +549,7 @@ export function registerApiRoutes(app, io, db, admin) {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const snapshot = await db
-        .collection("rooms")
-        .doc(roomId)
-        .collection("tracks")
-        .orderBy("createdAt", "asc")
-        .get();
-
-      const tracks = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      const tracks = await getTracksWithPositions(roomId);
       res.json(tracks);
     } catch (err) {
       console.error("Error getting tracks", err);
@@ -565,6 +583,10 @@ export function registerApiRoutes(app, io, db, admin) {
         provider = "spotify";
       }
 
+      // Get current track count to determine position (add to end of queue)
+      const existingTracks = await tracksRef.get();
+      const position = existingTracks.size;
+
       const newTrack = {
         url: url.trim(),
         note: note?.trim() || "",
@@ -576,6 +598,7 @@ export function registerApiRoutes(app, io, db, admin) {
         title: "",
         author: "",
         thumbnail: "",
+        position, // Queue position (0-indexed)
       };
 
       const docRef = await tracksRef.add(newTrack);
@@ -645,6 +668,176 @@ export function registerApiRoutes(app, io, db, admin) {
         return res.status(404).json({ error: "Track not found" });
       }
       res.status(500).json({ error: "Failed to vote track" });
+    }
+  });
+
+  /**
+   * DELETE TRACK
+   */
+  router.delete("/rooms/:roomId/tracks/:trackId", async (req, res) => {
+    const { roomId, trackId } = req.params;
+    const userId = req.user.uid;
+
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const trackRef = db
+        .collection("rooms")
+        .doc(roomId)
+        .collection("tracks")
+        .doc(trackId);
+
+      const trackDoc = await trackRef.get();
+      if (!trackDoc.exists) {
+        return res.status(404).json({ error: "Track not found" });
+      }
+
+      // Check if this track is currently playing - if so, clear it
+      const roomRef = db.collection("rooms").doc(roomId);
+      const roomDoc = await roomRef.get();
+      const roomData = roomDoc.data();
+      
+      if (roomData?.nowPlayingTrackId === trackId) {
+        await roomRef.update({
+          nowPlayingTrackId: null,
+          nowPlayingStartedAt: null,
+        });
+        io.to(roomId).emit("now-playing-state", {
+          trackId: null,
+          startedAt: null,
+        });
+      }
+
+      await trackRef.delete();
+
+      io.to(roomId).emit("track-removed", { roomId, trackId });
+
+      res.json({ success: true, trackId });
+    } catch (err) {
+      console.error("Error deleting track", err);
+      res.status(500).json({ error: "Failed to delete track" });
+    }
+  });
+
+  /**
+   * REORDER TRACK (move up or down in queue)
+   */
+  router.post("/rooms/:roomId/tracks/:trackId/reorder", async (req, res) => {
+    const { roomId, trackId } = req.params;
+    const { direction } = req.body; // "up" or "down"
+    const userId = req.user.uid;
+
+    if (!["up", "down"].includes(direction)) {
+      return res.status(400).json({ error: "direction must be 'up' or 'down'" });
+    }
+
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Get all tracks with proper position handling
+      let tracks = await getTracksWithPositions(roomId);
+
+      // Find the track to move
+      const currentIndex = tracks.findIndex((t) => t.id === trackId);
+      if (currentIndex === -1) {
+        return res.status(404).json({ error: "Track not found" });
+      }
+
+      // Calculate new index
+      let newIndex;
+      if (direction === "up") {
+        newIndex = Math.max(0, currentIndex - 1);
+      } else {
+        newIndex = Math.min(tracks.length - 1, currentIndex + 1);
+      }
+
+      // If position doesn't change, return early
+      if (newIndex === currentIndex) {
+        return res.json({ success: true, message: "Track already at boundary", tracks });
+      }
+
+      // Swap positions
+      const trackToMove = tracks[currentIndex];
+      const trackToSwap = tracks[newIndex];
+
+      const batch = db.batch();
+      
+      const trackToMoveRef = db
+        .collection("rooms")
+        .doc(roomId)
+        .collection("tracks")
+        .doc(trackToMove.id);
+      
+      const trackToSwapRef = db
+        .collection("rooms")
+        .doc(roomId)
+        .collection("tracks")
+        .doc(trackToSwap.id);
+
+      batch.update(trackToMoveRef, { position: newIndex });
+      batch.update(trackToSwapRef, { position: currentIndex });
+
+      await batch.commit();
+
+      // Fetch updated tracks list
+      const updatedTracks = await getTracksWithPositions(roomId);
+
+      io.to(roomId).emit("tracks-reordered", { roomId, tracks: updatedTracks });
+
+      res.json({ success: true, tracks: updatedTracks });
+    } catch (err) {
+      console.error("Error reordering track", err);
+      res.status(500).json({ error: "Failed to reorder track" });
+    }
+  });
+
+  /**
+   * REORDER TRACKS (drag-and-drop - set full order)
+   */
+  router.post("/rooms/:roomId/tracks/reorder-all", async (req, res) => {
+    const { roomId } = req.params;
+    const { trackIds } = req.body; // Array of track IDs in new order
+    const userId = req.user.uid;
+
+    if (!Array.isArray(trackIds) || trackIds.length === 0) {
+      return res.status(400).json({ error: "trackIds array is required" });
+    }
+
+    try {
+      const { hasAccess } = await checkRoomAccess(roomId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const batch = db.batch();
+
+      // Update position for each track
+      trackIds.forEach((trackId, index) => {
+        const trackRef = db
+          .collection("rooms")
+          .doc(roomId)
+          .collection("tracks")
+          .doc(trackId);
+        batch.update(trackRef, { position: index });
+      });
+
+      await batch.commit();
+
+      // Fetch updated tracks list
+      const updatedTracks = await getTracksWithPositions(roomId);
+
+      io.to(roomId).emit("tracks-reordered", { roomId, tracks: updatedTracks });
+
+      res.json({ success: true, tracks: updatedTracks });
+    } catch (err) {
+      console.error("Error reordering tracks", err);
+      res.status(500).json({ error: "Failed to reorder tracks" });
     }
   });
 
@@ -781,18 +974,8 @@ export function registerApiRoutes(app, io, db, admin) {
       const roomData = roomSnap.data();
       const currentTrackId = roomData?.nowPlayingTrackId;
 
-      // Get all tracks in queue order (oldest first)
-      const tracksSnapshot = await db
-        .collection("rooms")
-        .doc(roomId)
-        .collection("tracks")
-        .orderBy("createdAt", "asc")
-        .get();
-
-      const tracks = tracksSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      // Get all tracks in queue order (by position)
+      const tracks = await getTracksWithPositions(roomId);
 
       if (tracks.length === 0) {
         // No tracks in queue, clear now playing

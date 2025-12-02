@@ -1,25 +1,27 @@
-import React from "react";
+import React, { useState, memo } from "react";
 import { View, Text, TextInput, StyleSheet } from "react-native";
 import PrimaryButton from "../PrimaryButton";
 import { colors, radii, spacing } from "../../theme";
 
 type Props = {
-  url: string;
-  note: string;
-  setUrl: (v: string) => void;
-  setNote: (v: string) => void;
   adding: boolean;
-  onAdd: () => void | Promise<void>;
+  onAdd: (url: string, note: string) => void | Promise<void>;
 };
 
-export default function AddTrackCard({
-  url,
-  note,
-  setUrl,
-  setNote,
-  adding,
-  onAdd,
-}: Props) {
+// Memoized to prevent re-renders from parent
+const AddTrackCard = memo(function AddTrackCard({ adding, onAdd }: Props) {
+  // Keep input state local to prevent parent re-renders
+  const [url, setUrl] = useState("");
+  const [note, setNote] = useState("");
+
+  const handleAdd = async () => {
+    if (!url.trim()) return;
+    await onAdd(url, note);
+    // Clear inputs after successful add
+    setUrl("");
+    setNote("");
+  };
+
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>Add a track</Text>
@@ -35,6 +37,8 @@ export default function AddTrackCard({
           placeholderTextColor={colors.textMuted}
           value={url}
           onChangeText={setUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
         />
       </View>
 
@@ -51,12 +55,15 @@ export default function AddTrackCard({
 
       <PrimaryButton
         title="Add to room"
-        onPress={onAdd}
+        onPress={handleAdd}
         loading={adding}
+        disabled={!url.trim()}
       />
     </View>
   );
-}
+});
+
+export default AddTrackCard;
 
 const styles = StyleSheet.create({
   card: {

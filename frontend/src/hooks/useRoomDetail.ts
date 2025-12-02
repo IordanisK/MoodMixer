@@ -11,6 +11,9 @@ import {
   fetchRoom,
   setNowPlaying,
   advanceToNextTrack,
+  deleteTrack,
+  reorderTrack,
+  reorderAllTracks,
 } from "../api/rooms";
 import {
   TrackMetadata,
@@ -30,8 +33,6 @@ export function useRoomDetail(roomId: string) {
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [loadingMood, setLoadingMood] = useState(false);
 
-  const [url, setUrl] = useState("");
-  const [note, setNote] = useState("");
   const [adding, setAdding] = useState(false);
 
   const [nowPlayingId, setNowPlayingId] = useState<string | null>(null);
@@ -98,15 +99,13 @@ const loadRoom = async () => {
 
   // --------- actions ---------
 
-  const handleAddTrack = async () => {
+  const handleAddTrack = async (url: string, note: string) => {
     if (!url.trim()) return;
     try {
       setAdding(true);
       const newTrack = await addTrack(roomId, { url, note });
       // Add to bottom of list (queue order)
       setTracks((prev) => [...prev, newTrack]);
-      setUrl("");
-      setNote("");
     } catch (e) {
       console.log("Error adding track", e);
     } finally {
@@ -176,6 +175,48 @@ const loadRoom = async () => {
     }
   };
 
+  const handleSkipTrack = async () => {
+    console.log("⏭️ Skipping track...");
+    await handleTrackEnded();
+  };
+
+  const handleDeleteTrack = async (trackId: string) => {
+    try {
+      await deleteTrack(roomId, trackId);
+      setTracks((prev) => prev.filter((t) => t.id !== trackId));
+    } catch (e) {
+      console.log("Error deleting track", e);
+    }
+  };
+
+  const handleReorderTrack = async (trackId: string, direction: "up" | "down") => {
+    try {
+      const result = await reorderTrack(roomId, trackId, direction);
+      if (result.tracks) {
+        setTracks(result.tracks);
+      }
+    } catch (e) {
+      console.log("Error reordering track", e);
+    }
+  };
+
+  const handleReorderTracks = async (newTracks: Track[]) => {
+    // Optimistically update local state
+    setTracks(newTracks);
+    
+    try {
+      const trackIds = newTracks.map((t) => t.id);
+      const result = await reorderAllTracks(roomId, trackIds);
+      if (result.tracks) {
+        setTracks(result.tracks);
+      }
+    } catch (e) {
+      console.log("Error reordering tracks", e);
+      // Revert to original order on error
+      loadTracks();
+    }
+  };
+
   // --------- socket + initial load ---------
 
   useEffect(() => {
@@ -217,6 +258,12 @@ const loadRoom = async () => {
             setTracks((prev) =>
               prev.map((t) => (t.id === track.id ? track : t))
             );
+          },
+          onTrackRemoved: (trackId) => {
+            setTracks((prev) => prev.filter((t) => t.id !== trackId));
+          },
+          onTracksReordered: (tracks) => {
+            setTracks(tracks);
           },
           onMoodItemAdded: (item) => {
             setMoodItems((prev) => {
@@ -289,8 +336,6 @@ const loadRoom = async () => {
     moodItems,
     loadingTracks,
     loadingMood,
-    url,
-    note,
     adding,
     nowPlayingId,
     nowPlayingTrack,
@@ -303,8 +348,6 @@ const loadRoom = async () => {
     roomTheme,
     roomCreatedBy,
     roomCode,
-    setUrl,
-    setNote,
     handleAddTrack,
     handleVote,
     handleSelectGif,
@@ -312,5 +355,9 @@ const loadRoom = async () => {
     handleClearNowPlaying,
     handleChangeTheme,
     handleTrackEnded,
+    handleSkipTrack,
+    handleDeleteTrack,
+    handleReorderTrack,
+    handleReorderTracks,
   };
 }

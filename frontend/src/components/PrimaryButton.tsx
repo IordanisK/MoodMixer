@@ -13,6 +13,7 @@ type Props = {
   title: string;
   onPress?: (event: GestureResponderEvent) => void;
   loading?: boolean;
+  disabled?: boolean;
   ghost?: boolean;
 };
 
@@ -20,14 +21,16 @@ export default function PrimaryButton({
   title,
   onPress,
   loading,
+  disabled,
   ghost,
 }: Props) {
+  const isDisabled = loading || disabled;
   if (ghost) {
     return (
       <TouchableOpacity
-        style={[styles.ghostBtn, loading && styles.disabled]}
+        style={[styles.ghostBtn, isDisabled && styles.disabled]}
         onPress={onPress}
-        disabled={loading}
+        disabled={isDisabled}
         activeOpacity={0.7}
       >
         {loading ? (
@@ -43,14 +46,14 @@ export default function PrimaryButton({
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
-      disabled={loading}
+      disabled={isDisabled}
       style={styles.touch}
     >
       <LinearGradient
         colors={[colors.accent, colors.accentSecondary]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[styles.btn, loading && styles.disabled]}
+        style={[styles.btn, isDisabled && styles.disabled]}
       >
         {loading ? (
           <ActivityIndicator color="#fff" />

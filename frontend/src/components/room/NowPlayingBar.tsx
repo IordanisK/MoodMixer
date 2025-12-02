@@ -9,7 +9,8 @@ export type NowPlayingBarProps = {
   meta?: TrackMetadata; 
   roomTheme: RoomThemeId;
   settingNowPlayingFor: string | null;
-  onClear: () => void; 
+  onClear: () => void;
+  onSkip: () => void;
 };
 
 const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
@@ -18,6 +19,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   roomTheme,
   settingNowPlayingFor,
   onClear,
+  onSkip,
 }) => {
   const theme = roomThemes[roomTheme] || roomThemes.synthwave;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -74,14 +76,22 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               <Text style={styles.subtitle}>{track.note}</Text>
             ) : null}
           </View>
-          <TouchableOpacity
-            onPress={onClear}
-            disabled={settingNowPlayingFor === "clear"}
-          >
-            <Text style={styles.clearText}>
-              {settingNowPlayingFor === "clear" ? "Clearing..." : "Clear"}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.controls}>
+            <TouchableOpacity
+              onPress={onSkip}
+              style={styles.skipButton}
+            >
+              <Text style={styles.skipText}>Skip ⏭</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onClear}
+              disabled={settingNowPlayingFor === "clear"}
+            >
+              <Text style={styles.clearText}>
+                {settingNowPlayingFor === "clear" ? "Clearing..." : "Clear"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <Text style={styles.subtitle}>
@@ -125,6 +135,22 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
+  },
+  controls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  skipButton: {
+    backgroundColor: "rgba(99,102,241,0.2)",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radii.sm,
+  },
+  skipText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "600",
   },
   clearText: {
     color: colors.accentSecondary,
