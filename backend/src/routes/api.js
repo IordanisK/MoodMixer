@@ -16,6 +16,17 @@ export function registerApiRoutes(app, io, db, admin) {
   const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
   const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL;
 
+  // Validate Spotify environment variables
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI || !SPOTIFY_FRONTEND_URL) {
+    console.error("⚠️ WARNING: Spotify environment variables are not set!");
+    console.error("Missing:", {
+      SPOTIFY_CLIENT_ID: !SPOTIFY_CLIENT_ID,
+      SPOTIFY_CLIENT_SECRET: !SPOTIFY_CLIENT_SECRET,
+      SPOTIFY_REDIRECT_URI: !SPOTIFY_REDIRECT_URI,
+      SPOTIFY_FRONTEND_URL: !SPOTIFY_FRONTEND_URL,
+    });
+  }
+
   const spotifyUsersRef = db.collection("spotifyUsers");
 
   function mapRoomDoc(doc) {
@@ -1287,6 +1298,14 @@ export function registerApiRoutes(app, io, db, admin) {
   // POST /spotify/login-url
   router.post("/spotify/login-url", async (req, res) => {
     try {
+      // Validate Spotify credentials are configured
+      if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI || !SPOTIFY_FRONTEND_URL) {
+        console.error("Spotify OAuth: Missing required environment variables");
+        return res.status(500).json({
+          error: "Spotify integration not configured. Please set SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, and SPOTIFY_FRONTEND_URL environment variables.",
+        });
+      }
+
       const userId = req.user.uid;
 
       const state = Buffer.from(
