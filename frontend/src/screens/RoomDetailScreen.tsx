@@ -232,7 +232,11 @@ export default function RoomDetailScreen({ route }: Props) {
     const track = tracks.find((t) => t.id === nowPlayingId);
     if (!track) {
       // Track not found yet, wait for tracks to load
-      console.log("YouTube track not found in tracks array yet, waiting...");
+      console.log("YouTube track not found in tracks array yet, waiting...", {
+        nowPlayingId,
+        tracksCount: tracks.length,
+        trackIds: tracks.map(t => t.id)
+      });
       return;
     }
 
@@ -248,30 +252,53 @@ export default function RoomDetailScreen({ route }: Props) {
     }
 
     if (!youtubeReady) {
-      console.log("YouTube player not ready yet");
+      console.log("YouTube player not ready yet, will retry when ready", {
+        nowPlayingId,
+        trackUrl: track.url,
+        youtubeReady
+      });
       return;
     }
 
+    // Prevent duplicate playback attempts
+    if (playbackInitiatedRef.current === nowPlayingId) {
+      console.log("Playback already initiated for this track, skipping");
+      return;
+    }
+
+    // Calculate current offset
+    const currentOffset = nowPlayingStartedAt ? Math.max(0, (Date.now() - nowPlayingStartedAt) / 1000) : 0;
+
     console.log(
-      "Attempting to play YouTube track:",
+      "✅ All conditions met - attempting to play YouTube track:",
       track.url,
       "startedAt:",
-      nowPlayingStartedAt
+      nowPlayingStartedAt,
+      "offset:",
+      currentOffset
     );
+
+    // Mark that we're initiating playback
+    playbackInitiatedRef.current = nowPlayingId;
 
     const playTrack = async () => {
       try {
         if (!nowPlayingStartedAt) {
           // fallback: start from 0 if we don't have a timestamp
+          console.log("Playing YouTube track from start (no startedAt)");
           await playYouTubeTrack(track.url, 0);
         } else {
-          const offsetSeconds = Math.max(
-            0,
-            (Date.now() - nowPlayingStartedAt) / 1000
-          );
+          const offsetSeconds = Math.max(0, currentOffset);
+          console.log("Playing YouTube track at offset:", offsetSeconds, "seconds");
           await playYouTubeTrack(track.url, offsetSeconds);
         }
+        console.log("✅ YouTube track playback initiated successfully");
       } catch (e: any) {
+        // Reset playback tracking on error so we can retry
+        if (e.message?.includes("not ready")) {
+          playbackInitiatedRef.current = null;
+        }
+        
         const errorMessage = e.message || "Failed to play YouTube track";
         
         // Don't show alert for "not ready" errors - the effect will retry when ready
@@ -290,7 +317,14 @@ export default function RoomDetailScreen({ route }: Props) {
       }
     };
 
-    playTrack();
+    // Small delay to ensure everything is ready
+    const timeoutId = setTimeout(() => {
+      playTrack();
+    }, 100);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [
     nowPlayingId,
     tracks,
@@ -299,6 +333,14 @@ export default function RoomDetailScreen({ route }: Props) {
     playYouTubeTrack,
     stopYouTubeTrack,
   ]);
+
+  // Track if we've already initiated playback for the current track to prevent duplicates
+  const playbackInitiatedRef = useRef<string | null>(null);
+  
+  // Reset playback tracking when track changes
+  useEffect(() => {
+    playbackInitiatedRef.current = null;
+  }, [nowPlayingId]);
 
   async function handleConnectSpotify() {
     try {

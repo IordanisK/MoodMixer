@@ -10,10 +10,7 @@ declare global {
 function extractYouTubeId(url: string): string | null {
   try {
     const u = new URL(url);
-    if (
-      u.hostname.includes("youtube.com") ||
-      u.hostname.includes("youtu.be")
-    ) {
+    if (u.hostname.includes("youtube.com") || u.hostname.includes("youtu.be")) {
       if (u.hostname.includes("youtu.be")) {
         // short link: https://youtu.be/<id>
         return u.pathname.replace("/", "") || null;
@@ -35,7 +32,9 @@ export function useYouTubePlayer() {
   const [isReady, setIsReady] = useState(false);
   const [playerInitialized, setPlayerInitialized] = useState(false);
   const playerRef = useRef<any>(null);
-  const containerIdRef = useRef(`youtube-audio-player-${Math.random().toString(36).substr(2, 9)}`);
+  const containerIdRef = useRef(
+    `youtube-audio-player-${Math.random().toString(36).substr(2, 9)}`
+  );
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -83,16 +82,19 @@ export function useYouTubePlayer() {
     if (!isReady || !window.YT || playerRef.current) return;
 
     // Create a hidden container for the player
+    // Note: Player must be at least 1px visible for audio to work in some browsers
     let container = document.getElementById(containerIdRef.current);
     if (!container) {
       container = document.createElement("div");
       container.id = containerIdRef.current;
-      container.style.position = "absolute";
-      container.style.left = "-9999px";
+      container.style.position = "fixed";
+      container.style.left = "0";
+      container.style.top = "0";
       container.style.width = "1px";
       container.style.height = "1px";
-      container.style.opacity = "0";
+      container.style.opacity = "0.01"; // Very slightly visible for audio
       container.style.pointerEvents = "none";
+      container.style.zIndex = "-1";
       document.body.appendChild(container);
     }
 
@@ -116,6 +118,17 @@ export function useYouTubePlayer() {
         events: {
           onReady: () => {
             console.log("✅ YouTube audio player ready");
+            const player = playerRef.current || playerInstance;
+            try {
+              // Ensure volume is set and unmuted when player is ready
+              if (player && typeof player.setVolume === "function") {
+                player.setVolume(100);
+                player.unMute();
+                console.log("✅ Volume set to 100% and unmuted on ready");
+              }
+            } catch (e) {
+              console.error("Error setting volume on ready:", e);
+            }
             setPlayerInitialized(true);
           },
           onStateChange: (event: any) => {
@@ -123,10 +136,42 @@ export function useYouTubePlayer() {
             if (event.data === window.YT.PlayerState.PLAYING) {
               console.log("🎵 YouTube audio is playing");
               // Ensure volume is set and unmuted when playing starts
+              // This is critical for autoplay workaround (start muted, then unmute)
               try {
                 if (player) {
-                  player.setVolume(100);
-                  player.unMute(); // Ensure not muted
+                  // Delay to ensure playback has fully started before unmuting
+                  // Using 2 seconds to give the browser time to process the playback
+                  setTimeout(() => {
+                    try {
+                      // Check current state before setting
+                      const currentVolume = player.getVolume
+                        ? player.getVolume()
+                        : null;
+                      const isMuted = player.isMuted ? player.isMuted() : null;
+                      console.log("Player volume state on PLAYING:", {
+                        currentVolume,
+                        isMuted,
+                      });
+
+                      // Always set to 100% and unmute
+                      player.setVolume(100);
+                      player.unMute();
+
+                      // Verify after setting
+                      const newVolume = player.getVolume
+                        ? player.getVolume()
+                        : null;
+                      const stillMuted = player.isMuted
+                        ? player.isMuted()
+                        : null;
+                      console.log("Player volume after unmute (2s delay):", {
+                        newVolume,
+                        stillMuted,
+                      });
+                    } catch (e) {
+                      console.error("Error in delayed unmute:", e);
+                    }
+                  }, 2000);
                 }
               } catch (e) {
                 console.error("Error setting volume/unmuting:", e);
@@ -171,17 +216,17 @@ export function useYouTubePlayer() {
   const playYouTubeTrack = useCallback(
     async (url: string, offsetSeconds: number) => {
       const player = playerRef.current || playerInstance;
-      
+
       if (!isReady || !player) {
-        console.log("YouTube player not ready", { 
-          isReady, 
+        console.log("YouTube player not ready", {
+          isReady,
           hasPlayer: !!player,
         });
         throw new Error("YouTube player not ready yet");
       }
 
       // Check if player is actually ready by checking if methods exist
-      if (typeof player.getPlayerState !== 'function') {
+      if (typeof player.getPlayerState !== "function") {
         console.log("YouTube player methods not available yet, waiting...");
         throw new Error("YouTube player not ready yet");
       }
@@ -193,10 +238,11 @@ export function useYouTubePlayer() {
       }
 
       try {
-        // Set volume to 100% and unmute (ensure audio is not muted)
+        // Strategy: Start muted to bypass autoplay restrictions, then unmute after playback starts
+        // Many browsers allow muted autoplay but block unmuted autoplay
         player.setVolume(100);
-        player.unMute();
-        
+        player.mute(); // Start muted to bypass autoplay policy
+
         // Load the video
         player.loadVideoById({
           videoId: videoId,
@@ -204,29 +250,90 @@ export function useYouTubePlayer() {
         });
 
         // Wait for video to load, then play
+        let retryCount = 0;
+        const maxRetries = 20; // Max 4 seconds of retries
+
         const checkAndPlay = () => {
           try {
             const playerState = player.getPlayerState();
             // YouTube player states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
-            
-            if (playerState === window.YT.PlayerState.CUED || 
-                playerState === window.YT.PlayerState.BUFFERING ||
-                playerState === window.YT.PlayerState.UNSTARTED) {
-              // Video is loaded or loading, try to play
-              player.setVolume(100); // Ensure volume is set
-              player.unMute(); // Ensure not muted
-              player.playVideo();
-              console.log("✅ YouTube audio playing at", offsetSeconds, "seconds");
+
+            // Ensure volume is set (but keep muted for autoplay workaround)
+            player.setVolume(100);
+            // Don't unmute here - we'll unmute after playback starts
+
+            if (
+              playerState === window.YT.PlayerState.CUED ||
+              playerState === window.YT.PlayerState.BUFFERING ||
+              playerState === window.YT.PlayerState.UNSTARTED
+            ) {
+              // Video is loaded or loading, try to play (muted to bypass autoplay policy)
+              try {
+                player.playVideo();
+                console.log(
+                  "✅ YouTube audio playing (muted) at",
+                  offsetSeconds,
+                  "seconds"
+                );
+
+                // Unmute after a delay once playback has started
+                // This works around browser autoplay restrictions
+                // Using 1.5 seconds to give playback time to fully start
+                setTimeout(() => {
+                  try {
+                    const state = player.getPlayerState();
+                    if (state === window.YT.PlayerState.PLAYING) {
+                      player.unMute();
+                      player.setVolume(100);
+                      console.log(
+                        "✅ YouTube audio unmuted (1.5s delay) - should hear sound now"
+                      );
+                    } else {
+                      // Not playing yet, try again with longer delay
+                      player.playVideo();
+                      setTimeout(() => {
+                        if (
+                          player.getPlayerState() ===
+                          window.YT.PlayerState.PLAYING
+                        ) {
+                          player.unMute();
+                          player.setVolume(100);
+                          console.log(
+                            "✅ YouTube audio unmuted (retry after 2s)"
+                          );
+                        }
+                      }, 2000);
+                    }
+                  } catch (e) {
+                    console.error("Error unmuting:", e);
+                  }
+                }, 1500);
+              } catch (e) {
+                console.error("Error calling playVideo():", e);
+              }
             } else if (playerState === window.YT.PlayerState.PLAYING) {
-              // Already playing
+              // Already playing - ensure unmuted and volume is correct
+              const currentVolume = player.getVolume();
+              const isMuted = player.isMuted();
+              if (currentVolume !== 100 || isMuted) {
+                console.log("Correcting volume/mute state:", {
+                  currentVolume,
+                  isMuted,
+                });
+                player.setVolume(100);
+                player.unMute();
+              }
               console.log("✅ YouTube audio already playing");
-            } else {
+            } else if (retryCount < maxRetries) {
               // Not ready yet, retry
+              retryCount++;
               setTimeout(checkAndPlay, 200);
+            } else {
+              console.error("YouTube player failed to start after max retries");
             }
           } catch (e) {
-            console.error("Error playing YouTube video:", e);
-            // Fallback: try direct play
+            console.error("Error in checkAndPlay:", e);
+            // Fallback: try direct play with volume set
             try {
               player.setVolume(100);
               player.unMute();
@@ -249,7 +356,7 @@ export function useYouTubePlayer() {
 
   const stopYouTubeTrack = useCallback(() => {
     const player = playerRef.current || playerInstance;
-    if (player && typeof player.stopVideo === 'function') {
+    if (player && typeof player.stopVideo === "function") {
       try {
         player.stopVideo();
         console.log("🛑 YouTube audio stopped");
@@ -260,9 +367,13 @@ export function useYouTubePlayer() {
   }, []);
 
   // Check if player is actually ready by verifying methods exist
+  // Use playerInitialized state to trigger re-renders when player becomes ready
   const player = playerRef.current || playerInstance;
-  const actuallyReady = isReady && player && typeof player.getPlayerState === 'function';
-  
+  const actuallyReady =
+    isReady &&
+    playerInitialized &&
+    player &&
+    typeof player.getPlayerState === "function";
+
   return { isReady: actuallyReady, playYouTubeTrack, stopYouTubeTrack };
 }
-
