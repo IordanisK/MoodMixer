@@ -342,5 +342,33 @@ export function useSpotifyPlayer() {
     onTrackEndedCallback = callback;
   }, []);
 
-  return { isReady: !!accessToken && isReady, playSpotifyTrack, setOnTrackEnded };
+  const stopSpotify = useCallback(async () => {
+    if (!accessToken || !playerDeviceId) {
+      console.log("Spotify player not ready, nothing to stop");
+      return;
+    }
+
+    try {
+      // Pause playback via Spotify API
+      const response = await fetch(
+        `https://api.spotify.com/v1/me/player/pause?device_id=${playerDeviceId}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: "Bearer " + accessToken,
+          },
+        }
+      );
+
+      if (response.ok || response.status === 204) {
+        console.log("⏹️ Spotify playback stopped");
+      } else {
+        console.log("Could not pause Spotify:", response.status);
+      }
+    } catch (e) {
+      console.error("Error stopping Spotify playback:", e);
+    }
+  }, [accessToken, playerDeviceId]);
+
+  return { isReady: !!accessToken && isReady, playSpotifyTrack, setOnTrackEnded, stopSpotify };
 }

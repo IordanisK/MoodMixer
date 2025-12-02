@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -109,7 +109,42 @@ export default function RoomDetailScreen({ route }: Props) {
     handleSend,
   } = roomChat;
 
-  const { isReady: spotifyReady, playSpotifyTrack, setOnTrackEnded } = useSpotifyPlayer();
+  const { isReady: spotifyReady, playSpotifyTrack, setOnTrackEnded, stopSpotify } = useSpotifyPlayer();
+
+  // Store YouTube stop function
+  const youtubeStopRef = useRef<(() => void) | null>(null);
+
+  const handleYouTubePlayerReady = useCallback((controls: { stop: () => void }) => {
+    youtubeStopRef.current = controls.stop;
+  }, []);
+
+  // Function to stop the current player based on what's playing
+  const stopCurrentPlayer = useCallback((newTrackUrl: string) => {
+    const isNewTrackSpotify = newTrackUrl?.includes("spotify.com");
+    const isNewTrackYouTube = newTrackUrl?.includes("youtube.com") || newTrackUrl?.includes("youtu.be");
+    
+    // If switching to YouTube, stop Spotify
+    if (isNewTrackYouTube && stopSpotify) {
+      console.log("🔄 Switching to YouTube, stopping Spotify...");
+      stopSpotify();
+    }
+    
+    // If switching to Spotify, stop YouTube
+    if (isNewTrackSpotify && youtubeStopRef.current) {
+      console.log("🔄 Switching to Spotify, stopping YouTube...");
+      youtubeStopRef.current();
+    }
+  }, [stopSpotify]);
+
+  // Wrapper for handleSetNowPlaying that stops the other player first
+  const handleSetNowPlayingWithStop = useCallback((trackId: string) => {
+    // Find the track to get its URL
+    const track = tracks.find((t) => t.id === trackId);
+    if (track?.url) {
+      stopCurrentPlayer(track.url);
+    }
+    handleSetNowPlaying(trackId);
+  }, [tracks, stopCurrentPlayer, handleSetNowPlaying]);
 
   // Set up Spotify track end callback
   useEffect(() => {
@@ -445,6 +480,7 @@ export default function RoomDetailScreen({ route }: Props) {
                   url={nowPlayingTrack.url}
                   startedAt={nowPlayingStartedAt}
                   onTrackEnded={handleTrackEnded}
+                  onPlayerReady={handleYouTubePlayerReady}
                 />
               )}
 
@@ -475,7 +511,7 @@ export default function RoomDetailScreen({ route }: Props) {
                 trackMeta={trackMeta}
                 roomTheme={roomTheme}
                 onVote={handleVote}
-                onSetNowPlaying={handleSetNowPlaying}
+                onSetNowPlaying={handleSetNowPlayingWithStop}
                 onDeleteTrack={handleDeleteTrack}
                 onReorderTrack={handleReorderTrack}
                 onReorderTracks={handleReorderTracks}

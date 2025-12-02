@@ -5,6 +5,7 @@ type Props = {
   url?: string;
   startedAt?: number | null;
   onTrackEnded?: () => void;
+  onPlayerReady?: (controls: { stop: () => void }) => void;
 };
 
 // Native/mobile: we don't render anything (for now)

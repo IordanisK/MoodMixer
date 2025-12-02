@@ -11,6 +11,7 @@ type Props = {
   url?: string;
   startedAt?: number | null;
   onTrackEnded?: () => void;
+  onPlayerReady?: (controls: { stop: () => void }) => void;
 };
 
 function extractYouTubeId(url: string): string | null {
@@ -85,17 +86,41 @@ function loadYouTubeAPI(): Promise<void> {
   });
 }
 
-export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded }: Props) {
+export default function WebNowPlayingPlayer({ url, startedAt, onTrackEnded, onPlayerReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const onTrackEndedRef = useRef(onTrackEnded);
+  const onPlayerReadyRef = useRef(onPlayerReady);
   const currentVideoIdRef = useRef<string | null>(null);
   const isInitializingRef = useRef(false);
 
-  // Keep callback ref updated
+  // Keep callback refs updated
   useEffect(() => {
     onTrackEndedRef.current = onTrackEnded;
   }, [onTrackEnded]);
+
+  useEffect(() => {
+    onPlayerReadyRef.current = onPlayerReady;
+  }, [onPlayerReady]);
+
+  // Expose stop function
+  const stopYouTube = useCallback(() => {
+    if (playerRef.current) {
+      try {
+        playerRef.current.stopVideo();
+        console.log("⏹️ YouTube playback stopped");
+      } catch (e) {
+        console.log("Error stopping YouTube:", e);
+      }
+    }
+  }, []);
+
+  // Notify parent when player controls are available
+  useEffect(() => {
+    if (onPlayerReadyRef.current) {
+      onPlayerReadyRef.current({ stop: stopYouTube });
+    }
+  }, [stopYouTube]);
 
   const videoId = url ? extractYouTubeId(url) : null;
 
