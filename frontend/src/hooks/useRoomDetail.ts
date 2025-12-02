@@ -207,6 +207,7 @@ export function useRoomDetail(roomId: string) {
         socket.on("disconnect", handleDisconnect);
 
         // Subscribe to events BEFORE joining the room to ensure we receive the initial state
+        // Pass the socket instance explicitly to avoid race conditions
         unsubscribeEvents = subscribeToRoomEvents(roomId, {
           onTrackAdded: (track) => {
             setTracks((prev) => {
@@ -250,10 +251,20 @@ export function useRoomDetail(roomId: string) {
               ).toLocaleTimeString()}`
             );
           },
-        });
+        }, socket);
 
         // Join the room after subscribing to events
-        socket.emit("join-room", roomId);
+        // Wait a bit to ensure socket is fully ready
+        if (socket.connected) {
+          console.log(`🔌 Joining room ${roomId} (socket connected: ${socket.id})`);
+          socket.emit("join-room", roomId);
+        } else {
+          console.log(`🔌 Socket not connected yet, waiting...`);
+          socket.once("connect", () => {
+            console.log(`🔌 Socket connected, joining room ${roomId}`);
+            socket.emit("join-room", roomId);
+          });
+        }
 
         socketCleanup = () => {
           socket.emit("leave-room", roomId);

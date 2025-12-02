@@ -35,15 +35,25 @@ export async function getSocket(): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const s = io(baseURL, {
       auth: { token },
+      transports: ["websocket", "polling"], // Try websocket first, fallback to polling
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
     });
 
     s.on("connect", () => {
+      console.log("✅ Socket connected:", s.id, "transport:", s.io.engine.transport.name);
       socket = s;
       resolve(s);
     });
 
     s.on("connect_error", (err) => {
+      console.error("❌ Socket connection error:", err);
       reject(err);
+    });
+
+    s.on("disconnect", (reason) => {
+      console.log("⚠️ Socket disconnected:", reason);
     });
   });
 }
@@ -75,8 +85,13 @@ type Handlers = {
   onTestUserJoined?: (payload: { roomId: string; userId: string; userName: string; timestamp: number }) => void;
 };
 
-export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
-  if (!socket) return () => {};
+export function subscribeToRoomEvents(roomId: string, handlers: Handlers, socketInstance?: Socket) {
+  // Use provided socket instance or fall back to module-level socket
+  const s = socketInstance || socket;
+  if (!s) {
+    console.warn("subscribeToRoomEvents: No socket available");
+    return () => {};
+  }
 
   const {
     onTrackAdded,
@@ -104,7 +119,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onTrackAdded(payload.track);
       }
     };
-    socket.on("track-added", handler);
+    s.on("track-added", handler);
     handlerRefs.push({ event: "track-added", handler });
   }
 
@@ -114,7 +129,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onTrackUpdated(payload.track);
       }
     };
-    socket.on("track-updated", handler);
+    s.on("track-updated", handler);
     handlerRefs.push({ event: "track-updated", handler });
   }
 
@@ -124,7 +139,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onTrackRemoved(payload.trackId);
       }
     };
-    socket.on("track-removed", handler);
+    s.on("track-removed", handler);
     handlerRefs.push({ event: "track-removed", handler });
   }
 
@@ -134,7 +149,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onTracksReordered(payload.tracks);
       }
     };
-    socket.on("tracks-reordered", handler);
+    s.on("tracks-reordered", handler);
     handlerRefs.push({ event: "tracks-reordered", handler });
   }
 
@@ -144,7 +159,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onMoodItemAdded(payload.item);
       }
     };
-    socket.on("mood-item-added", handler);
+    s.on("mood-item-added", handler);
     handlerRefs.push({ event: "mood-item-added", handler });
   }
 
@@ -160,7 +175,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onNowPlayingChanged(trackId);
       }
     };
-    socket.on("now-playing-changed", handler);
+    s.on("now-playing-changed", handler);
     handlerRefs.push({ event: "now-playing-changed", handler });
   }
 
@@ -170,7 +185,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onRoomUsersChanged(payload.count);
       }
     };
-    socket.on("room-users", handler);
+    s.on("room-users", handler);
     handlerRefs.push({ event: "room-users", handler });
   }
 
@@ -180,7 +195,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onRoomThemeChanged(payload.theme);
       }
     };
-    socket.on("room-theme-changed", handler);
+    s.on("room-theme-changed", handler);
     handlerRefs.push({ event: "room-theme-changed", handler });
   }
 
@@ -190,7 +205,7 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
         onChatMessageAdded(payload.message);
       }
     };
-    socket.on("chat-message-added", handler);
+    s.on("chat-message-added", handler);
     handlerRefs.push({ event: "chat-message-added", handler });
   }
 
@@ -200,24 +215,28 @@ export function subscribeToRoomEvents(roomId: string, handlers: Handlers) {
       const startedAt = payload?.startedAt ?? null;
       onNowPlayingState(trackId, startedAt);
     };
-    socket.on("now-playing-state", handler);
+    s.on("now-playing-state", handler);
     handlerRefs.push({ event: "now-playing-state", handler });
   }
 
   if (onTestUserJoined) {
     const handler = (payload: any) => {
+      console.log(`📨 Received test-user-joined event:`, payload);
       if (payload.roomId === roomId) {
+        console.log(`✅ Test event matches room ${roomId}, calling handler`);
         onTestUserJoined(payload);
+      } else {
+        console.log(`⚠️ Test event room mismatch: expected ${roomId}, got ${payload.roomId}`);
       }
     };
-    socket.on("test-user-joined", handler);
+    s.on("test-user-joined", handler);
     handlerRefs.push({ event: "test-user-joined", handler });
   }
 
   // unsubscribe function
   return () => {
-    if (!socket) return;
-    const currentSocket = socket;
+    if (!s) return;
+    const currentSocket = s;
     handlerRefs.forEach(({ event, handler }) => {
       currentSocket.off(event, handler);
     });

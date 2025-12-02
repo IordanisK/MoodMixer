@@ -17,6 +17,17 @@ const io = new Server(httpServer, {
     origin: "*",
     methods: ["GET", "POST"],
   },
+  transports: ["websocket", "polling"], // Support both transports
+  allowEIO3: true, // Allow Engine.IO v3 clients
+  // NOTE: If running multiple instances (e.g., Cloud Run with max instances > 1),
+  // you need to use Redis adapter for Socket.io to share room state across instances.
+  // See: https://socket.io/docs/v4/redis-adapter/
+  // Example: const { createAdapter } = require("@socket.io/redis-adapter");
+  //          const { createClient } = require("redis");
+  //          const pubClient = createClient({ url: "redis://..." });
+  //          const subClient = pubClient.duplicate();
+  //          await Promise.all([pubClient.connect(), subClient.connect()]);
+  //          io.adapter(createAdapter(pubClient, subClient));
 });
 
 const PORT = process.env.PORT || 4000;
@@ -92,9 +103,15 @@ io.on("connection", (socket) => {
 
       socket.join(roomId);
       roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
-      console.log(`User ${userId} joined room ${roomId}`);
+      
+      // Get the room to see how many sockets are in it
+      const room = io.sockets.adapter.rooms.get(roomId);
+      const roomSize = room ? room.size : 0;
+      
+      console.log(`User ${userId} joined room ${roomId} (room now has ${roomSize} socket(s))`);
 
       // TEST EVENT: Broadcast to all users in the room when someone joins
+      console.log(`📢 Broadcasting test-user-joined to room ${roomId} (${roomSize} socket(s))`);
       io.to(roomId).emit("test-user-joined", {
         roomId,
         userId,

@@ -129,6 +129,7 @@ export function useRoomChat(roomId: string) {
 
       // Don't join the room here - useRoomDetail already joins it
       // Just subscribe to chat events
+      // Pass the socket instance explicitly to avoid race conditions
       unsubscribeEvents = subscribeToRoomEvents(roomId, {
         onChatMessageAdded: (msg) => {
           setMessages((prev) => {
@@ -141,7 +142,7 @@ export function useRoomChat(roomId: string) {
             return [...prev, msg];
           });
         },
-      });
+      }, socket);
     })();
 
     return () => {
