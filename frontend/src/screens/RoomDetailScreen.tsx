@@ -181,6 +181,27 @@ export default function RoomDetailScreen({ route }: Props) {
     playSpotifyTrack,
   });
 
+  // Cleanup: Stop playback when user leaves the room or switches rooms
+  useEffect(() => {
+    // This will run when component unmounts or roomId changes
+    return () => {
+      // Stop Spotify playback
+      if (stopSpotify) {
+        stopSpotify().catch((e) => {
+          console.error("Error stopping Spotify on cleanup:", e);
+        });
+      }
+      // Stop YouTube playback
+      if (youtubeStopRef.current) {
+        try {
+          youtubeStopRef.current();
+        } catch (e) {
+          console.error("Error stopping YouTube on cleanup:", e);
+        }
+      }
+    };
+  }, [roomId, stopSpotify]); // Re-run cleanup when roomId changes or component unmounts
+
   const headerAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView | null>(null);
   const [tracksSectionY, setTracksSectionY] = useState(0);
