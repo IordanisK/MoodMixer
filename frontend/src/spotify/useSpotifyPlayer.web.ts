@@ -30,7 +30,7 @@ let onTrackEndedCallback: OnTrackEndedCallback | null = null;
 let lastPlayingUri: string | null = null;
 let wasPlaying = false;
 
-export function useSpotifyPlayer() {
+export function useSpotifyPlayer(shouldInit: boolean = true) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -38,17 +38,28 @@ export function useSpotifyPlayer() {
 
   // Function to refresh the token (can be called externally)
   const refreshToken = useCallback(async () => {
+    if (!shouldInit) return;
     try {
       const res = await api.get("/spotify/player-token");
       setAccessToken(res.data.accessToken);
     } catch (e: any) {
+      // 401 is expected when Spotify isn't connected - don't log as error
+      if (e.response?.status !== 401) {
+        console.error("Error refreshing Spotify token:", e);
+      }
       setAccessToken(null);
       setIsReady(false);
     }
-  }, []);
+  }, [shouldInit]);
 
-  // 1) Fetch player token
+  // 1) Fetch player token (only if shouldInit is true)
   useEffect(() => {
+    if (!shouldInit) {
+      setAccessToken(null);
+      setIsReady(false);
+      return;
+    }
+
     let cancelled = false;
 
     const fetchToken = async () => {
@@ -57,6 +68,10 @@ export function useSpotifyPlayer() {
         if (cancelled) return;
         setAccessToken(res.data.accessToken);
       } catch (e: any) {
+        // 401 is expected when Spotify isn't connected - don't log as error
+        if (e.response?.status !== 401) {
+          console.error("Error fetching Spotify token:", e);
+        }
         setAccessToken(null);
         setIsReady(false);
       }
@@ -66,7 +81,7 @@ export function useSpotifyPlayer() {
     return () => {
       cancelled = true;
     };
-  }, [refreshTrigger]); // Re-fetch when refreshTrigger changes
+  }, [refreshTrigger, shouldInit]); // Re-fetch when refreshTrigger changes or shouldInit changes
 
   // Check for Spotify OAuth callback on web
   useEffect(() => {
@@ -372,7 +387,8 @@ export function useSpotifyPlayer() {
   }, [accessToken, playerDeviceId]);
 
   // isReady should be true only when we have token, player instance, and device ID
-  const actuallyReady = !!accessToken && isReady && !!playerDeviceId && !!playerInstance;
+  const actuallyReady =
+    !!accessToken && isReady && !!playerDeviceId && !!playerInstance;
 
   return {
     isReady: actuallyReady,

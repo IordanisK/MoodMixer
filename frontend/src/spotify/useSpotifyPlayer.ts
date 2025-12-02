@@ -1,5 +1,5 @@
 // Native / default stub – no Spotify playback
-export function useSpotifyPlayer() {
+export function useSpotifyPlayer(_shouldInit: boolean = true) {
   return {
     isReady: false,
     playSpotifyTrack: (_url: string, _offsetSeconds: number) => {},

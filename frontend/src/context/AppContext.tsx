@@ -1,7 +1,14 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import { Platform } from "react-native";
 import api from "../api/client";
 import { useSpotifyPlayer } from "../spotify/useSpotifyPlayer";
+import { useAuth } from "./AuthContext";
 
 type OnTrackEndedCallback = () => void;
 
@@ -26,20 +33,24 @@ type AppContextValue = {
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [spotifyState, setSpotifyState] = useState<SpotifyState>({
     isReady: false,
     isConnecting: false,
     error: null,
   });
 
-  // Use the Spotify player hook
+  // Only initialize Spotify player when user is authenticated
+  const shouldInitSpotify = !!user;
+
+  // Use the Spotify player hook (only when authenticated)
   const {
     isReady: spotifyReady,
     playSpotifyTrack: playTrack,
     stopSpotify: stopTrack,
     setOnTrackEnded: setTrackEnded,
     refreshConnection: refreshConnectionHook,
-  } = useSpotifyPlayer();
+  } = useSpotifyPlayer(shouldInitSpotify);
 
   // Track Spotify connection state
   useEffect(() => {
@@ -50,23 +61,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       error: spotifyReady ? null : prev.error,
     }));
   }, [spotifyReady]);
-
-  // Check for Spotify OAuth callback on web
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const spotifyStatus = urlParams.get("spotify");
-
-    if (spotifyStatus === "connected") {
-      // User just connected Spotify, refresh the connection
-      refreshSpotifyConnection();
-      // Clean up URL
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.delete("spotify");
-      window.history.replaceState({}, "", newUrl.toString());
-    }
-  }, []);
 
   const refreshSpotifyConnection = useCallback(async () => {
     if (refreshConnectionHook) {
@@ -83,6 +77,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [refreshConnectionHook]);
+
+  // Check for Spotify OAuth callback on web
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined" || !user) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const spotifyStatus = urlParams.get("spotify");
+
+    if (spotifyStatus === "connected") {
+      // User just connected Spotify, refresh the connection
+      refreshSpotifyConnection();
+      // Clean up URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("spotify");
+      window.history.replaceState({}, "", newUrl.toString());
+    }
+  }, [user, refreshSpotifyConnection]);
 
   const connectSpotify = useCallback(async () => {
     try {
@@ -121,4 +132,3 @@ export function useApp() {
   if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;
 }
-
