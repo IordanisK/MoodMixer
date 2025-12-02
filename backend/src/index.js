@@ -66,7 +66,10 @@ io.use(async (socket, next) => {
   }
 });
 
-const roomMembers = {};
+// NOTE: We no longer use a manual roomMembers counter.
+// Instead, we use io.sockets.adapter.rooms.get(roomId).size to get the actual
+// number of sockets in a room. This is more reliable and prevents discrepancies
+// from unexpected disconnects or errors.
 
 /**
  * Helper function to check if a user has access to a room
@@ -89,12 +92,12 @@ io.on("connection", (socket) => {
 
   /**
    * JOIN ROOM
-   * 
+   *
    * IMPORTANT: All socket operations are room-based, NOT user-based.
    * - Sockets join rooms using roomId: socket.join(roomId)
    * - Events are broadcast to rooms: io.to(roomId).emit(...)
    * - This ensures all users in a room receive the same events
-   * 
+   *
    * When a user joins a room, they automatically leave any previous rooms
    * to ensure each socket is only in one room at a time.
    */
@@ -118,29 +121,36 @@ io.on("connection", (socket) => {
       for (const existingRoomId of socket.rooms) {
         if (existingRoomId === socket.id) continue; // Skip the socket's own ID room
         if (existingRoomId !== roomId) {
-          console.log(`🔄 User ${userId} leaving room ${existingRoomId} before joining ${roomId}`);
+          console.log(
+            `🔄 User ${userId} leaving room ${existingRoomId} before joining ${roomId}`
+          );
           socket.leave(existingRoomId);
-          if (roomMembers[existingRoomId]) {
-            roomMembers[existingRoomId] = Math.max(0, roomMembers[existingRoomId] - 1);
-            io.to(existingRoomId).emit("room-users", {
-              roomId: existingRoomId,
-              count: roomMembers[existingRoomId],
-            });
-          }
+
+          // Get the actual room size from Socket.io adapter (source of truth)
+          const existingRoom = io.sockets.adapter.rooms.get(existingRoomId);
+          const existingRoomSize = existingRoom ? existingRoom.size : 0;
+
+          io.to(existingRoomId).emit("room-users", {
+            roomId: existingRoomId,
+            count: existingRoomSize,
+          });
         }
       }
 
       socket.join(roomId);
-      roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
-      
-      // Get the room to see how many sockets are in it
+
+      // Get the actual room size from Socket.io adapter (source of truth)
       const room = io.sockets.adapter.rooms.get(roomId);
       const roomSize = room ? room.size : 0;
-      
-      console.log(`User ${userId} joined room ${roomId} (room now has ${roomSize} socket(s))`);
+
+      console.log(
+        `User ${userId} joined room ${roomId} (room now has ${roomSize} socket(s))`
+      );
 
       // TEST EVENT: Broadcast to all users in the room when someone joins
-      console.log(`📢 Broadcasting test-user-joined to room ${roomId} (${roomSize} socket(s))`);
+      console.log(
+        `📢 Broadcasting test-user-joined to room ${roomId} (${roomSize} socket(s))`
+      );
       io.to(roomId).emit("test-user-joined", {
         roomId,
         userId,
@@ -164,9 +174,10 @@ io.on("connection", (socket) => {
         });
       }
 
+      // Use actual room size from Socket.io adapter (more reliable than manual counter)
       io.to(roomId).emit("room-users", {
         roomId,
-        count: roomMembers[roomId],
+        count: roomSize,
       });
     } catch (err) {
       console.error("Error checking room access for socket:", err);
@@ -176,26 +187,34 @@ io.on("connection", (socket) => {
 
   socket.on("leave-room", (roomId) => {
     socket.leave(roomId);
-    if (roomMembers[roomId]) {
-      roomMembers[roomId] = Math.max(0, roomMembers[roomId] - 1);
-      io.to(roomId).emit("room-users", {
-        roomId,
-        count: roomMembers[roomId],
-      });
-    }
-    console.log(`User ${socket.user?.uid} left room ${roomId}`);
+
+    // Get the actual room size from Socket.io adapter (source of truth)
+    const room = io.sockets.adapter.rooms.get(roomId);
+    const roomSize = room ? room.size : 0;
+
+    io.to(roomId).emit("room-users", {
+      roomId,
+      count: roomSize,
+    });
+
+    console.log(
+      `User ${socket.user?.uid} left room ${roomId} (room now has ${roomSize} socket(s))`
+    );
   });
 
   socket.on("disconnecting", () => {
     for (const roomId of socket.rooms) {
-      if (roomId === socket.id) continue;
-      if (roomMembers[roomId]) {
-        roomMembers[roomId] = Math.max(0, roomMembers[roomId] - 1);
-        io.to(roomId).emit("room-users", {
-          roomId,
-          count: roomMembers[roomId],
-        });
-      }
+      if (roomId === socket.id) continue; // Skip the socket's own ID room
+
+      // Get the actual room size from Socket.io adapter (source of truth)
+      // Note: socket is still in the room during "disconnecting", so we subtract 1
+      const room = io.sockets.adapter.rooms.get(roomId);
+      const roomSize = room ? Math.max(0, room.size - 1) : 0;
+
+      io.to(roomId).emit("room-users", {
+        roomId,
+        count: roomSize,
+      });
     }
   });
 
