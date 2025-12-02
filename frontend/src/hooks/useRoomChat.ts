@@ -27,9 +27,13 @@ export function useRoomChat(roomId: string) {
     try {
       setSending(true);
       const msg = await sendChatMessage(roomId, text);
-      // Mark this message ID as pending so we don't add it twice
+      // Mark this message ID as pending so we don't add it twice from socket
       pendingMessageIds.current.add(msg.id);
-      // Don't do optimistic update - let socket handle it to avoid duplicates
+      // Optimistic update - add message immediately
+      setMessages((prev) => {
+        if (prev.find((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
     } catch (e) {
       console.log("Error sending chat message", e);
     } finally {
@@ -46,8 +50,14 @@ export function useRoomChat(roomId: string) {
       await loadMessages();
 
       const socket = await getSocket();
+      
+      // Ensure we've joined the room before subscribing to events
+      // (useRoomDetail also joins, but this ensures no race condition)
+      socket.emit("join-room", roomId);
+      
       unsubscribeEvents = subscribeToRoomEvents(roomId, {
         onChatMessageAdded: (msg) => {
+          console.log("📨 Chat message received via socket:", msg);
           setMessages((prev) => {
             // Check if message already exists by ID
             if (prev.find((m) => m.id === msg.id)) {
