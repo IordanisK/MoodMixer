@@ -63,11 +63,11 @@ const roomMembers = {};
 async function checkRoomAccess(roomId, userId) {
   const doc = await db.collection("rooms").doc(roomId).get();
   if (!doc.exists) return { hasAccess: false };
-  
+
   const room = doc.data();
   const isCreator = room.createdBy === userId;
   const isInvited = (room.invitedUsers || []).includes(userId);
-  
+
   return {
     hasAccess: isCreator || isInvited,
   };
@@ -93,6 +93,21 @@ io.on("connection", (socket) => {
       socket.join(roomId);
       roomMembers[roomId] = (roomMembers[roomId] || 0) + 1;
       console.log(`User ${userId} joined room ${roomId}`);
+
+      // Send current now-playing state to the newly joined user
+      const roomDoc = await db.collection("rooms").doc(roomId).get();
+      if (roomDoc.exists) {
+        const roomData = roomDoc.data();
+        const nowPlayingTrackId = roomData?.nowPlayingTrackId || null;
+        const nowPlayingStartedAt = roomData?.nowPlayingStartedAt
+          ? roomData.nowPlayingStartedAt.toMillis()
+          : null;
+
+        socket.emit("now-playing-state", {
+          trackId: nowPlayingTrackId,
+          startedAt: nowPlayingStartedAt,
+        });
+      }
 
       io.to(roomId).emit("room-users", {
         roomId,

@@ -108,42 +108,58 @@ export default function RoomDetailScreen({ route }: Props) {
     handleSendVoice,
   } = roomChat;
 
-  const { isReady: spotifyReady, playSpotifyTrack, setOnTrackEnded, stopSpotify } = useSpotifyPlayer();
+  const {
+    isReady: spotifyReady,
+    playSpotifyTrack,
+    setOnTrackEnded,
+    stopSpotify,
+  } = useSpotifyPlayer();
 
   // Store YouTube stop function
   const youtubeStopRef = useRef<(() => void) | null>(null);
 
-  const handleYouTubePlayerReady = useCallback((controls: { stop: () => void }) => {
-    youtubeStopRef.current = controls.stop;
-  }, []);
+  const handleYouTubePlayerReady = useCallback(
+    (controls: { stop: () => void }) => {
+      youtubeStopRef.current = controls.stop;
+    },
+    []
+  );
 
   // Function to stop the current player based on what's playing
-  const stopCurrentPlayer = useCallback((newTrackUrl: string) => {
-    const isNewTrackSpotify = newTrackUrl?.includes("spotify.com");
-    const isNewTrackYouTube = newTrackUrl?.includes("youtube.com") || newTrackUrl?.includes("youtu.be");
-    
-    // If switching to YouTube, stop Spotify
-    if (isNewTrackYouTube && stopSpotify) {
-      console.log("🔄 Switching to YouTube, stopping Spotify...");
-      stopSpotify();
-    }
-    
-    // If switching to Spotify, stop YouTube
-    if (isNewTrackSpotify && youtubeStopRef.current) {
-      console.log("🔄 Switching to Spotify, stopping YouTube...");
-      youtubeStopRef.current();
-    }
-  }, [stopSpotify]);
+  const stopCurrentPlayer = useCallback(
+    (newTrackUrl: string) => {
+      const isNewTrackSpotify = newTrackUrl?.includes("spotify.com");
+      const isNewTrackYouTube =
+        newTrackUrl?.includes("youtube.com") ||
+        newTrackUrl?.includes("youtu.be");
+
+      // If switching to YouTube, stop Spotify
+      if (isNewTrackYouTube && stopSpotify) {
+        console.log("🔄 Switching to YouTube, stopping Spotify...");
+        stopSpotify();
+      }
+
+      // If switching to Spotify, stop YouTube
+      if (isNewTrackSpotify && youtubeStopRef.current) {
+        console.log("🔄 Switching to Spotify, stopping YouTube...");
+        youtubeStopRef.current();
+      }
+    },
+    [stopSpotify]
+  );
 
   // Wrapper for handleSetNowPlaying that stops the other player first
-  const handleSetNowPlayingWithStop = useCallback((trackId: string) => {
-    // Find the track to get its URL
-    const track = tracks.find((t) => t.id === trackId);
-    if (track?.url) {
-      stopCurrentPlayer(track.url);
-    }
-    handleSetNowPlaying(trackId);
-  }, [tracks, stopCurrentPlayer, handleSetNowPlaying]);
+  const handleSetNowPlayingWithStop = useCallback(
+    (trackId: string) => {
+      // Find the track to get its URL
+      const track = tracks.find((t) => t.id === trackId);
+      if (track?.url) {
+        stopCurrentPlayer(track.url);
+      }
+      handleSetNowPlaying(trackId);
+    },
+    [tracks, stopCurrentPlayer, handleSetNowPlaying]
+  );
 
   // Set up Spotify track end callback
   useEffect(() => {
@@ -466,7 +482,28 @@ export default function RoomDetailScreen({ route }: Props) {
               meta={nowPlayingMeta}
               roomTheme={roomTheme}
               settingNowPlayingFor={settingNowPlayingFor}
-              onClear={handleClearNowPlaying}
+              onClear={async () => {
+                // Stop current playback before clearing
+                if (
+                  nowPlayingTrack?.provider === "spotify" ||
+                  (nowPlayingTrack?.url &&
+                    nowPlayingTrack.url.includes("spotify.com"))
+                ) {
+                  if (stopSpotify) {
+                    await stopSpotify();
+                  }
+                } else if (
+                  nowPlayingTrack?.provider === "youtube" ||
+                  (nowPlayingTrack?.url &&
+                    (nowPlayingTrack.url.includes("youtube.com") ||
+                      nowPlayingTrack.url.includes("youtu.be")))
+                ) {
+                  if (youtubeStopRef.current) {
+                    youtubeStopRef.current();
+                  }
+                }
+                handleClearNowPlaying();
+              }}
               onSkip={handleSkipTrack}
             />
 
@@ -483,10 +520,7 @@ export default function RoomDetailScreen({ route }: Props) {
                 />
               )}
 
-            <AddTrackCard
-              adding={adding}
-              onAdd={handleAddTrack}
-            />
+            <AddTrackCard adding={adding} onAdd={handleAddTrack} />
 
             <RoomChat
               messages={messages}

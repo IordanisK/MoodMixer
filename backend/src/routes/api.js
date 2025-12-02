@@ -605,7 +605,7 @@ export function registerApiRoutes(app, io, db, admin) {
       const snap = await docRef.get();
       const saved = { id: docRef.id, ...snap.data() };
 
-      io.to(roomId).emit("track-added", saved);
+      io.to(roomId).emit("track-added", { roomId, track: saved });
 
       return res.status(201).json(saved);
     } catch (err) {

@@ -12,15 +12,8 @@ import {
   reorderTrack,
   reorderAllTracks,
 } from "../api/rooms";
-import {
-  TrackMetadata,
-  fetchTrackMetadata,
-} from "../api/metadata";
-import {
-  getSocket,
-  leaveRoom,
-  subscribeToRoomEvents,
-} from "../sockets/socket";
+import { TrackMetadata, fetchTrackMetadata } from "../api/metadata";
+import { getSocket, leaveRoom, subscribeToRoomEvents } from "../sockets/socket";
 import { RoomThemeId } from "../theme";
 import { updateRoomTheme } from "../api/rooms";
 
@@ -34,7 +27,9 @@ export function useRoomDetail(roomId: string) {
   const [settingNowPlayingFor, setSettingNowPlayingFor] = useState<
     string | null
   >(null);
-  const [nowPlayingStartedAt, setNowPlayingStartedAt] = useState<number | null>(null);
+  const [nowPlayingStartedAt, setNowPlayingStartedAt] = useState<number | null>(
+    null
+  );
 
   const [socketConnected, setSocketConnected] = useState(false);
   const [roomUsers, setRoomUsers] = useState(1);
@@ -43,8 +38,6 @@ export function useRoomDetail(roomId: string) {
   const [roomTheme, setRoomTheme] = useState<RoomThemeId>("synthwave");
   const [roomCreatedBy, setRoomCreatedBy] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
-
-
 
   // --------- loaders ---------
 
@@ -61,23 +54,23 @@ export function useRoomDetail(roomId: string) {
     }
   };
 
-const loadRoom = async () => {
-  if (!roomId) return;
-  try {
-    const room: Room = await fetchRoom(roomId);
-    setNowPlayingId(room.nowPlayingTrackId ?? null);
-    setNowPlayingStartedAt(room.nowPlayingStartedAt ?? null);
-    setRoomTheme((room.theme as RoomThemeId) || "synthwave");
-    setRoomCreatedBy(room.createdBy || null);
-    setRoomCode(room.roomCode || null);
-  } catch (e: any) {
-    console.log("Error loading room", e);
-    // If access denied, throw error to be handled by component
-    if (e.response?.status === 403) {
-      throw new Error("You don't have access to this room");
+  const loadRoom = async () => {
+    if (!roomId) return;
+    try {
+      const room: Room = await fetchRoom(roomId);
+      setNowPlayingId(room.nowPlayingTrackId ?? null);
+      setNowPlayingStartedAt(room.nowPlayingStartedAt ?? null);
+      setRoomTheme((room.theme as RoomThemeId) || "synthwave");
+      setRoomCreatedBy(room.createdBy || null);
+      setRoomCode(room.roomCode || null);
+    } catch (e: any) {
+      console.log("Error loading room", e);
+      // If access denied, throw error to be handled by component
+      if (e.response?.status === 403) {
+        throw new Error("You don't have access to this room");
+      }
     }
-  }
-};
+  };
 
   // --------- actions ---------
 
@@ -121,6 +114,7 @@ const loadRoom = async () => {
       setSettingNowPlayingFor("clear");
       const updatedRoom = await setNowPlaying(roomId, null);
       setNowPlayingId(updatedRoom.nowPlayingTrackId ?? null);
+      setNowPlayingStartedAt(null);
     } catch (e) {
       console.log("Error clearing now playing", e);
     } finally {
@@ -162,7 +156,10 @@ const loadRoom = async () => {
     }
   };
 
-  const handleReorderTrack = async (trackId: string, direction: "up" | "down") => {
+  const handleReorderTrack = async (
+    trackId: string,
+    direction: "up" | "down"
+  ) => {
     try {
       const result = await reorderTrack(roomId, trackId, direction);
       if (result.tracks) {
@@ -176,7 +173,7 @@ const loadRoom = async () => {
   const handleReorderTracks = async (newTracks: Track[]) => {
     // Optimistically update local state
     setTracks(newTracks);
-    
+
     try {
       const trackIds = newTracks.map((t) => t.id);
       const result = await reorderAllTracks(roomId, trackIds);
@@ -211,14 +208,7 @@ const loadRoom = async () => {
         socket.on("connect", handleConnect);
         socket.on("disconnect", handleDisconnect);
 
-        socket.emit("join-room", roomId);
-
-        socketCleanup = () => {
-          socket.emit("leave-room", roomId);
-          socket.off("connect", handleConnect);
-          socket.off("disconnect", handleDisconnect);
-        };
-
+        // Subscribe to events BEFORE joining the room to ensure we receive the initial state
         unsubscribeEvents = subscribeToRoomEvents(roomId, {
           onTrackAdded: (track) => {
             setTracks((prev) => {
@@ -243,7 +233,12 @@ const loadRoom = async () => {
             setNowPlayingId(trackId);
           },
           onNowPlayingState: (trackId, startedAt) => {
-            console.log("Now playing state via socket:", trackId, "startedAt:", startedAt);
+            console.log(
+              "Now playing state via socket:",
+              trackId,
+              "startedAt:",
+              startedAt
+            );
             setNowPlayingId(trackId);
             setNowPlayingStartedAt(startedAt ?? null);
           },
@@ -254,6 +249,15 @@ const loadRoom = async () => {
             setRoomTheme(theme);
           },
         });
+
+        // Join the room after subscribing to events
+        socket.emit("join-room", roomId);
+
+        socketCleanup = () => {
+          socket.emit("leave-room", roomId);
+          socket.off("connect", handleConnect);
+          socket.off("disconnect", handleDisconnect);
+        };
       } catch (err) {
         console.log("Error joining room / socket", err);
       }
@@ -283,20 +287,22 @@ const loadRoom = async () => {
     });
   }, [tracks, trackMeta]);
 
-  const nowPlayingTrack: Track | undefined =
-    nowPlayingId ? tracks.find((t) => t.id === nowPlayingId) : undefined;
+  const nowPlayingTrack: Track | undefined = nowPlayingId
+    ? tracks.find((t) => t.id === nowPlayingId)
+    : undefined;
 
-  const nowPlayingMeta: TrackMetadata | undefined =
-    nowPlayingTrack ? trackMeta[nowPlayingTrack.id] : undefined;
+  const nowPlayingMeta: TrackMetadata | undefined = nowPlayingTrack
+    ? trackMeta[nowPlayingTrack.id]
+    : undefined;
 
   const handleChangeTheme = async (theme: RoomThemeId) => {
-  try {
-    setRoomTheme(theme); // optimistic
-    await updateRoomTheme(roomId, theme);
-  } catch (e) {
-    console.log("Error changing theme", e);
-  }
-};
+    try {
+      setRoomTheme(theme); // optimistic
+      await updateRoomTheme(roomId, theme);
+    } catch (e) {
+      console.log("Error changing theme", e);
+    }
+  };
 
   return {
     tracks,
