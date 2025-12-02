@@ -5,5 +5,6 @@ export function useSpotifyPlayer() {
     playSpotifyTrack: (_url: string, _offsetSeconds: number) => {},
     setOnTrackEnded: (_callback: (() => void) | null) => {},
     stopSpotify: async () => {},
+    refreshConnection: async () => {},
   };
 }

@@ -942,7 +942,7 @@ export function registerApiRoutes(app, io, db, admin) {
       const room = mapRoomDoc(snap);
       const startedAt = room.nowPlayingStartedAt || null;
 
-      io.to(roomId).emit("now-playing-changed", trackId || null);
+      io.to(roomId).emit("now-playing-changed", { roomId, trackId: trackId || null });
       io.to(roomId).emit("now-playing-state", {
         trackId: trackId || null,
         startedAt,

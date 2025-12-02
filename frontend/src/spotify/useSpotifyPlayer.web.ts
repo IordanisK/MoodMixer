@@ -33,7 +33,19 @@ let wasPlaying = false;
 export function useSpotifyPlayer() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const onTrackEndedRef = useRef<OnTrackEndedCallback | null>(null);
+
+  // Function to refresh the token (can be called externally)
+  const refreshToken = useCallback(async () => {
+    try {
+      const res = await api.get("/spotify/player-token");
+      setAccessToken(res.data.accessToken);
+    } catch (e: any) {
+      setAccessToken(null);
+      setIsReady(false);
+    }
+  }, []);
 
   // 1) Fetch player token
   useEffect(() => {
@@ -41,13 +53,10 @@ export function useSpotifyPlayer() {
 
     const fetchToken = async () => {
       try {
-        console.log("Fetching Spotify player token...");
         const res = await api.get("/spotify/player-token");
         if (cancelled) return;
-        console.log("✅ Spotify player token received");
         setAccessToken(res.data.accessToken);
       } catch (e: any) {
-        console.log("❌ No Spotify token / not connected", e.response?.status, e.response?.data);
         setAccessToken(null);
         setIsReady(false);
       }
@@ -57,19 +66,40 @@ export function useSpotifyPlayer() {
     return () => {
       cancelled = true;
     };
+  }, [refreshTrigger]); // Re-fetch when refreshTrigger changes
+
+  // Check for Spotify OAuth callback on web
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Check URL params for Spotify connection status
+    const urlParams = new URLSearchParams(window.location.search);
+    const spotifyStatus = urlParams.get("spotify");
+
+    if (spotifyStatus === "connected") {
+      // User just connected Spotify, refresh the token
+      setRefreshTrigger((prev) => prev + 1);
+      // Clean up URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("spotify");
+      window.history.replaceState({}, "", newUrl.toString());
+    }
   }, []);
 
   // 2) Load SDK + init player when token is ready
   useEffect(() => {
     if (!accessToken) {
-      console.log("No Spotify access token, skipping player initialization");
       return;
     }
-    
+
     if (playerInstance) {
-      // already initialized
-      console.log("Spotify player already initialized, device ID:", playerDeviceId);
-      setIsReady(!!playerDeviceId);
+      // already initialized - check if device ID is available
+      if (playerDeviceId) {
+        setIsReady(true);
+      } else {
+        // Player exists but device ID not set yet - wait for ready event
+        setIsReady(false);
+      }
       return;
     }
 
@@ -87,7 +117,6 @@ export function useSpotifyPlayer() {
         }
       };
 
-      console.log("Initializing Spotify Web Playback SDK player...");
       const player = new window.Spotify.Player({
         name: "MoodMixer Web Player",
         getOAuthToken: tokenGetter,
@@ -95,13 +124,11 @@ export function useSpotifyPlayer() {
       });
 
       player.addListener("ready", ({ device_id }: any) => {
-        console.log("✅ Spotify Player ready with device ID", device_id);
         playerDeviceId = device_id;
         setIsReady(true);
       });
 
       player.addListener("not_ready", ({ device_id }: any) => {
-        console.log("⚠️ Spotify Player not ready", device_id);
         if (playerDeviceId === device_id) {
           setIsReady(false);
           playerDeviceId = null;
@@ -148,12 +175,10 @@ export function useSpotifyPlayer() {
 
       player.connect();
       playerInstance = player;
-      console.log("Spotify player connecting...");
     };
 
     // Check if SDK is already loaded
     if (window.Spotify) {
-      console.log("Spotify SDK already loaded, initializing player...");
       initPlayer();
       return;
     }
@@ -162,18 +187,13 @@ export function useSpotifyPlayer() {
     const scriptId = "spotify-web-playback-sdk";
     if (document.getElementById(scriptId)) {
       // Script is loading, wait for it
-      console.log("Spotify SDK script already loading, waiting for ready callback...");
       window.onSpotifyWebPlaybackSDKReady = initPlayer;
     } else {
       // Load the script
-      console.log("Loading Spotify Web Playback SDK script...");
       const script = document.createElement("script");
       script.id = scriptId;
       script.src = "https://sdk.scdn.co/spotify-player.js";
       script.async = true;
-      script.onload = () => {
-        console.log("Spotify SDK script loaded");
-      };
       script.onerror = () => {
         console.error("Failed to load Spotify SDK script");
       };
@@ -185,18 +205,14 @@ export function useSpotifyPlayer() {
   const playSpotifyTrack = useCallback(
     async (url: string, offsetSeconds: number) => {
       if (!accessToken || !isReady || !playerDeviceId || !playerInstance) {
-        console.log("Spotify player not ready", {
-          hasToken: !!accessToken,
-          isReady,
-          hasDeviceId: !!playerDeviceId,
-          hasInstance: !!playerInstance,
-        });
-        return;
+        // Throw error so caller knows the player isn't ready
+        throw new Error(
+          `Spotify player not ready: accessToken=${!!accessToken}, isReady=${isReady}, deviceId=${!!playerDeviceId}, instance=${!!playerInstance}`
+        );
       }
 
       const uri = extractSpotifyTrackUri(url);
       if (!uri) {
-        console.log("Not a valid Spotify track URL", url);
         return;
       }
 
@@ -219,22 +235,22 @@ export function useSpotifyPlayer() {
           if (contentType && contentType.includes("application/json")) {
             try {
               const playerData = await getPlayerResponse.json();
-              if (playerData.device && playerData.device.id === playerDeviceId) {
+              if (
+                playerData.device &&
+                playerData.device.id === playerDeviceId
+              ) {
                 needsTransfer = false;
-                console.log("Web Playback SDK device is already active");
               }
             } catch (e) {
-              console.log("Could not parse player response as JSON, will transfer anyway");
+              // Will transfer anyway
             }
           } else if (getPlayerResponse.status === 204) {
             // 204 No Content - no active player, need to transfer
-            console.log("No active player found, will transfer to Web SDK device");
           }
         }
 
         // Transfer playback to Web Playback SDK device if needed
         if (needsTransfer) {
-          console.log("Transferring playback to Web Playback SDK device...");
           const transferResponse = await fetch(
             `https://api.spotify.com/v1/me/player`,
             {
@@ -255,26 +271,20 @@ export function useSpotifyPlayer() {
             try {
               errorText = await transferResponse.text();
             } catch (e) {
-              console.log("Could not read error response text");
+              // Could not read error response
             }
-            
-            console.error("Error transferring playback to Web SDK device:", {
-              status: transferResponse.status,
-              statusText: transferResponse.statusText,
-              error: errorText || "No error message",
-            });
-            
+
             // If 403, the user may not be registered in Spotify Developer Dashboard
             if (transferResponse.status === 403) {
-              const errorMessage = errorText && errorText.includes("not be registered")
-                ? "Your Spotify account needs to be added to the app's allowed users. Please contact the app administrator or check developer.spotify.com/dashboard"
-                : "Access denied. Please check your Spotify account settings.";
+              const errorMessage =
+                errorText && errorText.includes("not be registered")
+                  ? "Your Spotify account needs to be added to the app's allowed users. Please contact the app administrator or check developer.spotify.com/dashboard"
+                  : "Access denied. Please check your Spotify account settings.";
               throw new Error(errorMessage);
             }
-            
+
             // For other errors, continue anyway - might work if device is already active
           } else {
-            console.log("Successfully transferred to Web Playback SDK device");
             // Small delay to ensure device transfer completes
             await new Promise((resolve) => setTimeout(resolve, 200));
           }
@@ -297,38 +307,33 @@ export function useSpotifyPlayer() {
         );
 
         // Spotify API returns 204 No Content on success for PUT requests
-        if (playResponse.status === 204) {
-          console.log("✅ Spotify track playing on Web SDK device (204 No Content)");
-        } else if (!playResponse.ok) {
+        if (!playResponse.ok && playResponse.status !== 204) {
           let errorText = "";
           try {
             errorText = await playResponse.text();
           } catch (e) {
-            console.log("Could not read error response text");
+            // Could not read error response
           }
-          
-          console.error("Error starting Spotify playback:", {
-            status: playResponse.status,
-            statusText: playResponse.statusText,
-            error: errorText || "No error message",
-          });
-          
+
           // Provide more helpful error messages
           if (playResponse.status === 403) {
-            const errorMessage = errorText && errorText.includes("not be registered")
-              ? "Your Spotify account needs to be added to the app's allowed users. Please contact the app administrator or check developer.spotify.com/dashboard"
-              : "Access denied. Please check your Spotify account settings.";
+            const errorMessage =
+              errorText && errorText.includes("not be registered")
+                ? "Your Spotify account needs to be added to the app's allowed users. Please contact the app administrator or check developer.spotify.com/dashboard"
+                : "Access denied. Please check your Spotify account settings.";
             throw new Error(errorMessage);
           } else if (playResponse.status === 404) {
-            throw new Error("No active device found. Please make sure Spotify Web Playback SDK is connected.");
+            throw new Error(
+              "No active device found. Please make sure Spotify Web Playback SDK is connected."
+            );
           } else {
-            throw new Error(`Failed to play track: ${playResponse.statusText || "Unknown error"}`);
+            throw new Error(
+              `Failed to play track: ${
+                playResponse.statusText || "Unknown error"
+              }`
+            );
           }
-        } else {
-          console.log("✅ Spotify track playing on Web SDK device");
         }
-
-        console.log("Spotify track playing on Web SDK device");
       } catch (e) {
         console.error("Error starting Spotify playback", e);
         throw e;
@@ -337,20 +342,22 @@ export function useSpotifyPlayer() {
     [accessToken, isReady, playerDeviceId]
   );
 
-  const setOnTrackEnded = useCallback((callback: OnTrackEndedCallback | null) => {
-    onTrackEndedRef.current = callback;
-    onTrackEndedCallback = callback;
-  }, []);
+  const setOnTrackEnded = useCallback(
+    (callback: OnTrackEndedCallback | null) => {
+      onTrackEndedRef.current = callback;
+      onTrackEndedCallback = callback;
+    },
+    []
+  );
 
   const stopSpotify = useCallback(async () => {
     if (!accessToken || !playerDeviceId) {
-      console.log("Spotify player not ready, nothing to stop");
       return;
     }
 
     try {
       // Pause playback via Spotify API
-      const response = await fetch(
+      await fetch(
         `https://api.spotify.com/v1/me/player/pause?device_id=${playerDeviceId}`,
         {
           method: "PUT",
@@ -359,16 +366,19 @@ export function useSpotifyPlayer() {
           },
         }
       );
-
-      if (response.ok || response.status === 204) {
-        console.log("⏹️ Spotify playback stopped");
-      } else {
-        console.log("Could not pause Spotify:", response.status);
-      }
     } catch (e) {
       console.error("Error stopping Spotify playback:", e);
     }
   }, [accessToken, playerDeviceId]);
 
-  return { isReady: !!accessToken && isReady, playSpotifyTrack, setOnTrackEnded, stopSpotify };
+  // isReady should be true only when we have token, player instance, and device ID
+  const actuallyReady = !!accessToken && isReady && !!playerDeviceId && !!playerInstance;
+
+  return {
+    isReady: actuallyReady,
+    playSpotifyTrack,
+    setOnTrackEnded,
+    stopSpotify,
+    refreshConnection: refreshToken, // Expose refresh function
+  };
 }
