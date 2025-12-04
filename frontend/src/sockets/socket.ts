@@ -76,13 +76,17 @@ export async function getSocket(): Promise<Socket> {
       reconnectionAttempts: Infinity, // Keep trying to reconnect indefinitely
       timeout: 20000, // Connection timeout
       forceNew: false, // Reuse existing connection if available
+      // Additional options for better connection stability
+      upgrade: true, // Allow transport upgrades (polling -> websocket)
+      rememberUpgrade: true, // Remember transport preference
     });
 
     // Track if this is the initial connection
     let isInitialConnection = true;
     let hasResolved = false;
 
-    s.on("connect", async () => {
+    // Store handlers so we can clean them up if needed (though they persist for socket lifetime)
+    const connectHandler = async () => {
       // If reconnecting (not initial connection), refresh token
       // Note: Socket.io doesn't support updating auth after connection, but we refresh
       // the token here so it's ready for the next reconnection if needed
@@ -104,7 +108,9 @@ export async function getSocket(): Promise<Socket> {
         hasResolved = true;
         resolve(s);
       }
-    });
+    };
+
+    s.on("connect", connectHandler);
 
     s.on("connect_error", (err) => {
       console.error("❌ Socket connection error:", err);
@@ -116,8 +122,14 @@ export async function getSocket(): Promise<Socket> {
       }
     });
 
-    s.on("disconnect", () => {
+    s.on("disconnect", (reason) => {
       isInitialConnection = false;
+      // If disconnected due to server closing or transport close, the connection is definitely dead
+      // Socket.io will automatically try to reconnect, but we should be aware
+      if (reason === "io server disconnect" || reason === "transport close") {
+        // Connection was closed by server or transport failed
+        // Reconnection will happen automatically
+      }
     });
 
     s.on("reconnect", () => {

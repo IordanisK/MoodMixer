@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Track,
   Room,
@@ -38,6 +38,9 @@ export function useRoomDetail(roomId: string) {
   const [roomTheme, setRoomTheme] = useState<RoomThemeId>("synthwave");
   const [roomCreatedBy, setRoomCreatedBy] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
+
+  // Track pending track additions to detect stale socket connections
+  const pendingTrackAdditionsRef = useRef<Set<string>>(new Set());
 
   // --------- loaders ---------
 
@@ -80,9 +83,23 @@ export function useRoomDetail(roomId: string) {
       setAdding(true);
       // Don't optimistically update - let the socket event handle it
       // This ensures all users see the track at the same time
-      await addTrack(roomId, { url, note });
+      const addedTrack = await addTrack(roomId, { url, note });
+      
+      // Mark this track as pending - we'll check if socket event arrives
+      pendingTrackAdditionsRef.current.add(addedTrack.id);
+      
+      // Fallback: If socket event doesn't arrive within 2 seconds, reload tracks
+      // This handles cases where the socket connection is stale but appears connected
+      setTimeout(() => {
+        // Check if the track is still pending (socket event didn't arrive)
+        if (pendingTrackAdditionsRef.current.has(addedTrack.id)) {
+          console.warn("Track added but socket event not received, reloading tracks...");
+          pendingTrackAdditionsRef.current.delete(addedTrack.id);
+          loadTracks();
+        }
+      }, 2000);
     } catch (e) {
-      console.log("Error adding track", e);
+      console.error("Error adding track", e);
     } finally {
       setAdding(false);
     }
@@ -214,6 +231,15 @@ export function useRoomDetail(roomId: string) {
             }
           }
         };
+
+        // Track last received event time to detect stale connections
+        let lastEventTime = Date.now();
+        let lastRejoinTime = 0;
+        const REJOIN_COOLDOWN = 30 * 1000; // Don't rejoin more than once per 30 seconds
+        
+        const updateLastEventTime = () => {
+          lastEventTime = Date.now();
+        };
         
         const handleDisconnect = () => {
           setSocketConnected(false);
@@ -226,6 +252,10 @@ export function useRoomDetail(roomId: string) {
         // Pass the socket instance explicitly to avoid race conditions
         unsubscribeEvents = subscribeToRoomEvents(roomId, {
           onTrackAdded: (track) => {
+            updateLastEventTime(); // Track that we received an event
+            // Clear pending flag if this track was pending
+            pendingTrackAdditionsRef.current.delete(track.id);
+            
             setTracks((prev) => {
               if (prev.find((t) => t.id === track.id)) {
                 return prev;
@@ -235,27 +265,36 @@ export function useRoomDetail(roomId: string) {
             });
           },
           onTrackUpdated: (track) => {
+            updateLastEventTime();
             setTracks((prev) =>
               prev.map((t) => (t.id === track.id ? track : t))
             );
           },
           onTrackRemoved: (trackId) => {
+            updateLastEventTime();
             setTracks((prev) => prev.filter((t) => t.id !== trackId));
           },
           onTracksReordered: (tracks) => {
+            updateLastEventTime();
             setTracks(tracks);
           },
           onNowPlayingChanged: (trackId) => {
+            updateLastEventTime();
             setNowPlayingId(trackId);
           },
           onNowPlayingState: (trackId, startedAt) => {
+            updateLastEventTime();
             setNowPlayingId(trackId);
             setNowPlayingStartedAt(startedAt ?? null);
           },
           onRoomUsersChanged: (count) => {
+            updateLastEventTime();
             setRoomUsers(count);
+            // Reset rejoin cooldown when we receive room-users event (confirms we're in the room)
+            lastRejoinTime = Date.now();
           },
           onRoomThemeChanged: (theme) => {
+            updateLastEventTime();
             setRoomTheme(theme);
           },
         }, socket);
@@ -269,7 +308,38 @@ export function useRoomDetail(roomId: string) {
           });
         }
 
+        // Periodic health check: Rejoin room periodically to ensure we're still in the room
+        // Also check if we haven't received any events in a while (stale connection detection)
+        // This prevents stale connections where the socket appears connected but isn't receiving events
+        const healthCheckInterval = setInterval(() => {
+          if (!socket.connected) return;
+          
+          const now = Date.now();
+          const timeSinceLastRejoin = now - lastRejoinTime;
+          const timeSinceLastEvent = now - lastEventTime;
+          
+          // Rate limit: Don't rejoin more than once per 30 seconds
+          if (timeSinceLastRejoin < REJOIN_COOLDOWN) {
+            return;
+          }
+          
+          // Check if we haven't received events in 3 minutes - connection might be stale
+          if (timeSinceLastEvent > 3 * 60 * 1000) {
+            console.warn("No socket events received in 3+ minutes, forcing rejoin and reload");
+            socket.emit("join-room", roomId);
+            // Reload tracks to sync state
+            loadTracks();
+            lastRejoinTime = now;
+            lastEventTime = now; // Reset timer
+          } else if (timeSinceLastRejoin > 5 * 60 * 1000) {
+            // Normal health check - rejoin every 5 minutes to ensure we're still in the room
+            socket.emit("join-room", roomId);
+            lastRejoinTime = now;
+          }
+        }, 1 * 60 * 1000); // Check every minute, but only rejoin when needed
+
         socketCleanup = () => {
+          clearInterval(healthCheckInterval);
           socket.emit("leave-room", roomId);
           socket.off("connect", handleConnect);
           socket.off("disconnect", handleDisconnect);
