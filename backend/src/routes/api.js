@@ -11,13 +11,34 @@ import { authMiddleware } from "../middleware/auth.js";
 export function registerApiRoutes(app, io, db, admin) {
   const router = express.Router();
 
-  const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-  const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-  const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
-  const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL;
+  // Trim whitespace from environment variables to prevent issues with trailing newlines
+  const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID?.trim();
+  const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET?.trim();
+  const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL?.trim();
+
+  // Determine redirect URI: use env var if set, otherwise auto-detect based on environment
+  // Cloud Run sets PORT automatically, and NODE_ENV is typically 'production' in production
+  const isProduction =
+    process.env.NODE_ENV === "production" || process.env.PORT === "8080";
+  const SPOTIFY_REDIRECT_URI =
+    process.env.SPOTIFY_REDIRECT_URI?.trim() ||
+    (isProduction
+      ? "https://moodmixer-backend-dxbpzs77wa-uc.a.run.app/auth/spotify/callback"
+      : "http://localhost:4000/auth/spotify/callback");
+
+  console.log(
+    `🎵 Spotify OAuth redirect URI: ${SPOTIFY_REDIRECT_URI} (${
+      isProduction ? "production" : "development"
+    })`
+  );
 
   // Validate Spotify environment variables
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI || !SPOTIFY_FRONTEND_URL) {
+  if (
+    !SPOTIFY_CLIENT_ID ||
+    !SPOTIFY_CLIENT_SECRET ||
+    !SPOTIFY_REDIRECT_URI ||
+    !SPOTIFY_FRONTEND_URL
+  ) {
     console.error("⚠️ WARNING: Spotify environment variables are not set!");
     console.error("Missing:", {
       SPOTIFY_CLIENT_ID: !SPOTIFY_CLIENT_ID,
@@ -70,11 +91,11 @@ export function registerApiRoutes(app, io, db, admin) {
   async function checkRoomAccess(roomId, userId) {
     const doc = await db.collection("rooms").doc(roomId).get();
     if (!doc.exists) return { hasAccess: false, room: null };
-    
+
     const room = doc.data();
     const isCreator = room.createdBy === userId;
     const isInvited = (room.invitedUsers || []).includes(userId);
-    
+
     return {
       hasAccess: isCreator || isInvited,
       room: { id: doc.id, ...room },
@@ -134,7 +155,11 @@ export function registerApiRoutes(app, io, db, admin) {
   // GET /auth/spotify/callback (public – Spotify calls this, no JWT)
   router.get("/auth/spotify/callback", async (req, res) => {
     const { code, state, error } = req.query;
-    console.log("Spotify callback hit", { hasCode: !!code, hasState: !!state, error });
+    console.log("Spotify callback hit", {
+      hasCode: !!code,
+      hasState: !!state,
+      error,
+    });
 
     if (error) {
       console.error("Spotify auth error:", error);
@@ -216,7 +241,7 @@ export function registerApiRoutes(app, io, db, admin) {
   router.get("/rooms", async (req, res) => {
     try {
       const userId = req.user.uid;
-      
+
       // Get all rooms and filter by access
       const snapshot = await db
         .collection("rooms")
@@ -237,7 +262,7 @@ export function registerApiRoutes(app, io, db, admin) {
           const isInvited = (room.invitedUsers || []).includes(userId);
           return isCreator || isInvited;
         });
-      
+
       res.json(rooms);
     } catch (err) {
       console.error("Error getting rooms", err);
@@ -248,14 +273,14 @@ export function registerApiRoutes(app, io, db, admin) {
   router.get("/rooms/:roomId", async (req, res) => {
     const { roomId } = req.params;
     const userId = req.user.uid;
-    
+
     try {
       const { hasAccess, room } = await checkRoomAccess(roomId, userId);
-      
+
       if (!hasAccess) {
         return res.status(403).json({ error: "Access denied" });
       }
-      
+
       const doc = await db.collection("rooms").doc(roomId).get();
       const mappedRoom = mapRoomDoc(doc);
       res.json(mappedRoom);
@@ -271,7 +296,7 @@ export function registerApiRoutes(app, io, db, admin) {
   router.get("/rooms/slug/:slug", async (req, res) => {
     const { slug } = req.params;
     const userId = req.user.uid;
-    
+
     try {
       // Find room by slug
       const snapshot = await db
@@ -286,13 +311,13 @@ export function registerApiRoutes(app, io, db, admin) {
 
       const doc = snapshot.docs[0];
       const roomId = doc.id;
-      
+
       const { hasAccess } = await checkRoomAccess(roomId, userId);
-      
+
       if (!hasAccess) {
         return res.status(403).json({ error: "Access denied" });
       }
-      
+
       const mappedRoom = mapRoomDoc(doc);
       res.json(mappedRoom);
     } catch (err) {
@@ -307,42 +332,44 @@ export function registerApiRoutes(app, io, db, admin) {
 
     try {
       const { hasAccess, room } = await checkRoomAccess(roomId, userId);
-      
+
       if (!hasAccess) {
         return res.status(403).json({ error: "Access denied" });
       }
 
       // Only room creator can delete
       if (room.createdBy !== userId) {
-        return res.status(403).json({ error: "Only room creator can delete the room" });
+        return res
+          .status(403)
+          .json({ error: "Only room creator can delete the room" });
       }
 
       // Delete the room document (Firestore will cascade delete subcollections in some cases,
       // but we should explicitly delete them to be safe)
       const roomRef = db.collection("rooms").doc(roomId);
-      
+
       // Delete subcollections
       const batch = db.batch();
-      
+
       // Delete tracks
       const tracksSnapshot = await roomRef.collection("tracks").get();
       tracksSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      
+
       // Delete mood items
       const moodItemsSnapshot = await roomRef.collection("moodItems").get();
       moodItemsSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      
+
       // Delete chat messages
       const chatSnapshot = await roomRef.collection("chatMessages").get();
       chatSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      
+
       // Delete play history
       const historySnapshot = await roomRef.collection("playHistory").get();
       historySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      
+
       // Delete the room itself
       batch.delete(roomRef);
-      
+
       await batch.commit();
 
       res.json({ success: true, message: "Room deleted successfully" });
@@ -383,7 +410,7 @@ export function registerApiRoutes(app, io, db, admin) {
           .where("slug", "==", slug)
           .limit(1)
           .get();
-        
+
         if (existingRoom.empty) {
           slugExists = false;
         } else {
@@ -431,7 +458,7 @@ export function registerApiRoutes(app, io, db, admin) {
 
     try {
       const roomCode = code.trim().toUpperCase();
-      
+
       // Find room by code
       const snapshot = await db
         .collection("rooms")
@@ -482,14 +509,16 @@ export function registerApiRoutes(app, io, db, admin) {
 
     try {
       const { hasAccess, room } = await checkRoomAccess(roomId, userId);
-      
+
       if (!hasAccess) {
         return res.status(403).json({ error: "Access denied" });
       }
 
       // Only room creator can regenerate code
       if (room.createdBy !== userId) {
-        return res.status(403).json({ error: "Only room creator can regenerate code" });
+        return res
+          .status(403)
+          .json({ error: "Only room creator can regenerate code" });
       }
 
       // Generate new unique code
@@ -553,7 +582,7 @@ export function registerApiRoutes(app, io, db, admin) {
   router.get("/rooms/:roomId/tracks", async (req, res) => {
     const { roomId } = req.params;
     const userId = req.user.uid;
-    
+
     try {
       const { hasAccess } = await checkRoomAccess(roomId, userId);
       if (!hasAccess) {
@@ -710,7 +739,7 @@ export function registerApiRoutes(app, io, db, admin) {
       const roomRef = db.collection("rooms").doc(roomId);
       const roomDoc = await roomRef.get();
       const roomData = roomDoc.data();
-      
+
       if (roomData?.nowPlayingTrackId === trackId) {
         await roomRef.update({
           nowPlayingTrackId: null,
@@ -743,7 +772,9 @@ export function registerApiRoutes(app, io, db, admin) {
     const userId = req.user.uid;
 
     if (!["up", "down"].includes(direction)) {
-      return res.status(400).json({ error: "direction must be 'up' or 'down'" });
+      return res
+        .status(400)
+        .json({ error: "direction must be 'up' or 'down'" });
     }
 
     try {
@@ -771,7 +802,11 @@ export function registerApiRoutes(app, io, db, admin) {
 
       // If position doesn't change, return early
       if (newIndex === currentIndex) {
-        return res.json({ success: true, message: "Track already at boundary", tracks });
+        return res.json({
+          success: true,
+          message: "Track already at boundary",
+          tracks,
+        });
       }
 
       // Swap positions
@@ -779,13 +814,13 @@ export function registerApiRoutes(app, io, db, admin) {
       const trackToSwap = tracks[newIndex];
 
       const batch = db.batch();
-      
+
       const trackToMoveRef = db
         .collection("rooms")
         .doc(roomId)
         .collection("tracks")
         .doc(trackToMove.id);
-      
+
       const trackToSwapRef = db
         .collection("rooms")
         .doc(roomId)
@@ -954,7 +989,10 @@ export function registerApiRoutes(app, io, db, admin) {
       const room = mapRoomDoc(snap);
       const startedAt = room.nowPlayingStartedAt || null;
 
-      io.to(roomId).emit("now-playing-changed", { roomId, trackId: trackId || null });
+      io.to(roomId).emit("now-playing-changed", {
+        roomId,
+        trackId: trackId || null,
+      });
       io.to(roomId).emit("now-playing-state", {
         roomId,
         trackId: trackId || null,
@@ -1126,21 +1164,36 @@ export function registerApiRoutes(app, io, db, admin) {
 
   router.post("/rooms/:roomId/chat", async (req, res) => {
     const { roomId } = req.params;
-    const { type = "text", text, imageUrl, gifUrl, voiceUrl, voiceDuration } = req.body;
+    const {
+      type = "text",
+      text,
+      imageUrl,
+      gifUrl,
+      voiceUrl,
+      voiceDuration,
+    } = req.body;
     const userId = req.user.uid;
 
     // Validate based on message type
     if (type === "text" && (!text || !text.trim())) {
-      return res.status(400).json({ error: "text is required for text messages" });
+      return res
+        .status(400)
+        .json({ error: "text is required for text messages" });
     }
     if (type === "image" && !imageUrl) {
-      return res.status(400).json({ error: "imageUrl is required for image messages" });
+      return res
+        .status(400)
+        .json({ error: "imageUrl is required for image messages" });
     }
     if (type === "gif" && !gifUrl) {
-      return res.status(400).json({ error: "gifUrl is required for gif messages" });
+      return res
+        .status(400)
+        .json({ error: "gifUrl is required for gif messages" });
     }
     if (type === "voice" && !voiceUrl) {
-      return res.status(400).json({ error: "voiceUrl is required for voice messages" });
+      return res
+        .status(400)
+        .json({ error: "voiceUrl is required for voice messages" });
     }
 
     try {
@@ -1215,7 +1268,7 @@ export function registerApiRoutes(app, io, db, admin) {
       // For simplicity, we store the image as a data URL directly
       // This avoids needing to configure Firebase Storage buckets
       // For production, you'd want to upload to Firebase Storage or another service
-      
+
       // Validate it's a valid data URL
       if (!image.startsWith("data:image/")) {
         return res.status(400).json({ error: "Invalid image format" });
@@ -1299,14 +1352,24 @@ export function registerApiRoutes(app, io, db, admin) {
   router.post("/spotify/login-url", async (req, res) => {
     try {
       // Validate Spotify credentials are configured
-      if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI || !SPOTIFY_FRONTEND_URL) {
+      if (
+        !SPOTIFY_CLIENT_ID ||
+        !SPOTIFY_CLIENT_SECRET ||
+        !SPOTIFY_REDIRECT_URI ||
+        !SPOTIFY_FRONTEND_URL
+      ) {
         const missing = {
           SPOTIFY_CLIENT_ID: !SPOTIFY_CLIENT_ID ? "❌ MISSING" : "✅ Set",
-          SPOTIFY_CLIENT_SECRET: !SPOTIFY_CLIENT_SECRET ? "❌ MISSING" : "✅ Set",
+          SPOTIFY_CLIENT_SECRET: !SPOTIFY_CLIENT_SECRET
+            ? "❌ MISSING"
+            : "✅ Set",
           SPOTIFY_REDIRECT_URI: !SPOTIFY_REDIRECT_URI ? "❌ MISSING" : "✅ Set",
           SPOTIFY_FRONTEND_URL: !SPOTIFY_FRONTEND_URL ? "❌ MISSING" : "✅ Set",
         };
-        console.error("Spotify OAuth: Missing required environment variables:", missing);
+        console.error(
+          "Spotify OAuth: Missing required environment variables:",
+          missing
+        );
         return res.status(500).json({
           error: "Spotify integration not configured",
           missing: Object.entries(missing)
@@ -1386,7 +1449,9 @@ export function registerApiRoutes(app, io, db, admin) {
       const tokenJson = await tokenRes.json();
       if (!tokenRes.ok) {
         console.error("Error refreshing Spotify token:", tokenJson);
-        return res.status(500).json({ error: "Error refreshing Spotify token" });
+        return res
+          .status(500)
+          .json({ error: "Error refreshing Spotify token" });
       }
 
       const { access_token, expires_in } = tokenJson;
