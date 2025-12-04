@@ -11,26 +11,10 @@ import { authMiddleware } from "../middleware/auth.js";
 export function registerApiRoutes(app, io, db, admin) {
   const router = express.Router();
 
-  // Trim whitespace from environment variables to prevent issues with trailing newlines
-  const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID?.trim();
-  const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET?.trim();
-  const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL?.trim();
-
-  // Determine redirect URI: use env var if set, otherwise auto-detect based on environment
-  // Cloud Run sets PORT automatically, and NODE_ENV is typically 'production' in production
-  const isProduction =
-    process.env.NODE_ENV === "production" || process.env.PORT === "8080";
-  const SPOTIFY_REDIRECT_URI =
-    process.env.SPOTIFY_REDIRECT_URI?.trim() ||
-    (isProduction
-      ? "https://moodmixer-backend-dxbpzs77wa-uc.a.run.app/auth/spotify/callback"
-      : "http://localhost:4000/auth/spotify/callback");
-
-  console.log(
-    `🎵 Spotify OAuth redirect URI: ${SPOTIFY_REDIRECT_URI} (${
-      isProduction ? "production" : "development"
-    })`
-  );
+  const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+  const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+  const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
+  const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL;
 
   // Validate Spotify environment variables
   if (
