@@ -1300,9 +1300,18 @@ export function registerApiRoutes(app, io, db, admin) {
     try {
       // Validate Spotify credentials are configured
       if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI || !SPOTIFY_FRONTEND_URL) {
-        console.error("Spotify OAuth: Missing required environment variables");
+        const missing = {
+          SPOTIFY_CLIENT_ID: !SPOTIFY_CLIENT_ID ? "❌ MISSING" : "✅ Set",
+          SPOTIFY_CLIENT_SECRET: !SPOTIFY_CLIENT_SECRET ? "❌ MISSING" : "✅ Set",
+          SPOTIFY_REDIRECT_URI: !SPOTIFY_REDIRECT_URI ? "❌ MISSING" : "✅ Set",
+          SPOTIFY_FRONTEND_URL: !SPOTIFY_FRONTEND_URL ? "❌ MISSING" : "✅ Set",
+        };
+        console.error("Spotify OAuth: Missing required environment variables:", missing);
         return res.status(500).json({
-          error: "Spotify integration not configured. Please set SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, and SPOTIFY_FRONTEND_URL environment variables.",
+          error: "Spotify integration not configured",
+          missing: Object.entries(missing)
+            .filter(([_, v]) => v.includes("MISSING"))
+            .map(([k]) => k),
         });
       }
 
