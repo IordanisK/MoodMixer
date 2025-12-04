@@ -8,7 +8,6 @@ import AuthScreen from "./screens/AuthScreen";
 import RoomDetailScreen from "./screens/RoomDetailScreen";
 import RoomListScreen from "./screens/RoomListScreen";
 
-
 export type RootStackParamList = {
   Rooms: undefined;
   RoomDetail: { slug: string };
@@ -16,7 +15,6 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// URL linking configuration for web
 const linking = {
   prefixes: Platform.OS === "web" ? ["/"] : [],
   config: {

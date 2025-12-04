@@ -139,7 +139,7 @@ io.on("connection", (socket) => {
 
       socket.join(roomId);
 
-      // Get the actual room size from Socket.io adapter (source of truth)
+      // Get room size
       const room = io.sockets.adapter.rooms.get(roomId);
       const roomSize = room ? room.size : 0;
 
