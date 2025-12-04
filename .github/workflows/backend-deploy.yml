@@ -48,6 +48,36 @@ jobs:
             echo "✓ Secret is valid JSON"
           fi
 
+      - name: Validate Spotify secrets
+        run: |
+          MISSING_SECRETS=()
+          if [ -z "${{ secrets.SPOTIFY_CLIENT_ID }}" ]; then
+            MISSING_SECRETS+=("SPOTIFY_CLIENT_ID")
+          fi
+          if [ -z "${{ secrets.SPOTIFY_CLIENT_SECRET }}" ]; then
+            MISSING_SECRETS+=("SPOTIFY_CLIENT_SECRET")
+          fi
+          if [ -z "${{ secrets.SPOTIFY_REDIRECT_URI }}" ]; then
+            MISSING_SECRETS+=("SPOTIFY_REDIRECT_URI")
+          fi
+          if [ -z "${{ secrets.SPOTIFY_FRONTEND_URL }}" ]; then
+            MISSING_SECRETS+=("SPOTIFY_FRONTEND_URL")
+          fi
+
+          if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
+            echo "⚠️  ERROR: Missing required Spotify secrets:"
+            for secret in "${MISSING_SECRETS[@]}"; do
+              echo "  - $secret"
+            done
+            echo ""
+            echo "Troubleshooting steps:"
+            echo "1. Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "2. Add the missing secrets listed above"
+            echo "3. Ensure secret names match exactly (case-sensitive)"
+            exit 1
+          fi
+          echo "✓ All Spotify secrets are configured"
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -105,7 +135,7 @@ jobs:
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
-            --set-env-vars="FIREBASE_SERVICE_ACCOUNT_B64=$FIREBASE_SA_B64" \
+            --set-env-vars="FIREBASE_SERVICE_ACCOUNT_B64=$FIREBASE_SA_B64,SPOTIFY_CLIENT_ID=${{ secrets.SPOTIFY_CLIENT_ID }},SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }},SPOTIFY_REDIRECT_URI=${{ secrets.SPOTIFY_REDIRECT_URI }},SPOTIFY_FRONTEND_URL=${{ secrets.SPOTIFY_FRONTEND_URL }}" \
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
