@@ -2,7 +2,7 @@
 export function useSpotifyPlayer(_shouldInit: boolean = true) {
   return {
     isReady: false,
-    playSpotifyTrack: (_url: string, _offsetSeconds: number) => {},
+    playSpotifyTrack: async (_url: string, _offsetSeconds: number) => {},
     setOnTrackEnded: (_callback: (() => void) | null) => {},
     stopSpotify: async () => {},
     refreshConnection: async () => {},

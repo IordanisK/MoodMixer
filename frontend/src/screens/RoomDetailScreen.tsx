@@ -109,13 +109,14 @@ export default function RoomDetailScreen({ route }: Props) {
   } = roomChat;
 
   const {
-    spotify: { isReady: spotifyReady },
+    spotify,
     playSpotifyTrack,
     setOnTrackEnded,
     stopSpotify,
     refreshSpotifyConnection,
     connectSpotify,
   } = useApp();
+  const { isReady: spotifyReady, isConnecting: spotifyConnecting } = spotify;
 
   // Store YouTube stop function
   const youtubeStopRef = useRef<(() => void) | null>(null);
@@ -375,6 +376,8 @@ export default function RoomDetailScreen({ route }: Props) {
                   Platform.OS === "web"
                 )
               }
+              onConnect={handleConnectSpotify}
+              connecting={spotifyConnecting}
             />
             <NowPlayingBar
               track={nowPlayingTrack}

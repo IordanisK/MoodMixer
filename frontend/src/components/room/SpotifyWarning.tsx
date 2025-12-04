@@ -1,12 +1,15 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { colors, spacing } from "../../theme";
+import PrimaryButton from "../PrimaryButton";
 
 type Props = {
   visible: boolean;
+  onConnect?: () => void;
+  connecting?: boolean;
 };
 
-export default function SpotifyWarning({ visible }: Props) {
+export default function SpotifyWarning({ visible, onConnect, connecting }: Props) {
   if (!visible) return null;
 
   return (
@@ -14,6 +17,18 @@ export default function SpotifyWarning({ visible }: Props) {
       <Text style={styles.spotifyWarningText}>
         ⚠️ Connect Spotify to hear this track playing
       </Text>
+      <Text style={styles.spotifyWarningSubtext}>
+        Other users can already hear the track. Connect to join them!
+      </Text>
+      {onConnect && (
+        <View style={styles.buttonContainer}>
+          <PrimaryButton
+            title="Connect Spotify"
+            onPress={onConnect}
+            loading={connecting}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -32,6 +47,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     textAlign: "center",
+    marginBottom: spacing.xs,
+  },
+  spotifyWarningSubtext: {
+    color: "rgba(252,165,165,0.8)",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: spacing.md,
+  },
+  buttonContainer: {
+    marginTop: spacing.xs,
   },
 });
 

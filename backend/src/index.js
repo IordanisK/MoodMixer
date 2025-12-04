@@ -19,6 +19,8 @@ const io = new Server(httpServer, {
   },
   transports: ["websocket", "polling"], // Support both transports
   allowEIO3: true, // Allow Engine.IO v3 clients
+  pingTimeout: 60000, // How long to wait for a pong before considering connection closed (60s)
+  pingInterval: 25000, // How often to ping clients (25s)
   // NOTE: If running multiple instances (e.g., Cloud Run with max instances > 1),
   // you need to use Redis adapter for Socket.io to share room state across instances.
   // See: https://socket.io/docs/v4/redis-adapter/
@@ -52,15 +54,22 @@ app.get("/", (req, res) => {
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error("No token"));
+    if (!token) {
+      console.log("Socket auth: No token provided");
+      return next(new Error("No token"));
+    }
 
     const decoded = await admin.auth().verifyIdToken(token);
     socket.user = decoded;
     next();
   } catch (err) {
-    // Only log non-expired token errors to reduce noise
-    if (err.code !== "auth/id-token-expired") {
-      console.error("Socket auth error:", err);
+    // Handle expired tokens more gracefully - client should refresh and reconnect
+    if (err.code === "auth/id-token-expired") {
+      console.log(
+        "Socket auth: Token expired, client should refresh and reconnect"
+      );
+    } else {
+      console.error("Socket auth error:", err.code || err.message);
     }
     next(new Error("Unauthorized"));
   }
@@ -146,17 +155,6 @@ io.on("connection", (socket) => {
       console.log(
         `User ${userId} joined room ${roomId} (room now has ${roomSize} socket(s))`
       );
-
-      // TEST EVENT: Broadcast to all users in the room when someone joins
-      console.log(
-        `📢 Broadcasting test-user-joined to room ${roomId} (${roomSize} socket(s))`
-      );
-      io.to(roomId).emit("test-user-joined", {
-        roomId,
-        userId,
-        userName: socket.user?.name || socket.user?.email || "Unknown User",
-        timestamp: Date.now(),
-      });
 
       // Send current now-playing state to the newly joined user
       const roomDoc = await db.collection("rooms").doc(roomId).get();

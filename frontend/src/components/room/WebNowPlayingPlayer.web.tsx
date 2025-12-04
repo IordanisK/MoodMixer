@@ -138,7 +138,6 @@ export default function WebNowPlayingPlayer({
   const handleStateChange = useCallback((event: any) => {
     // YT.PlayerState.ENDED = 0
     if (event.data === 0) {
-      console.log("🎬 YouTube video ended!");
       if (onTrackEndedRef.current) {
         onTrackEndedRef.current();
       }
@@ -161,13 +160,16 @@ export default function WebNowPlayingPlayer({
 
     // Don't re-init if same video
     if (currentVideoIdRef.current === videoId && playerRef.current) {
-      // Just seek if needed
+      // Just seek if needed (e.g., when startedAt changes after joining)
       try {
         const currentTime = playerRef.current.getCurrentTime?.() || 0;
-        if (Math.abs(currentTime - offsetSeconds) > 5) {
+        const timeDiff = Math.abs(currentTime - offsetSeconds);
+        if (timeDiff > 5) {
           playerRef.current.seekTo(offsetSeconds, true);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error("Error seeking YouTube player:", e);
+      }
       return;
     }
 

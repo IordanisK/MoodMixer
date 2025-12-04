@@ -41,7 +41,25 @@ const getBaseURL = () => {
 const baseURL = getBaseURL();
 
 export async function getSocket(): Promise<Socket> {
+  // If socket exists and is connected, return it
   if (socket && socket.connected) return socket;
+
+  // If socket exists but is disconnected, reuse it (it will reconnect automatically)
+  if (socket && !socket.connected) {
+    // Wait a bit to see if it connects, or return it anyway (reconnection will happen)
+    const existingSocket = socket; // Capture for closure
+    return new Promise((resolve) => {
+      // Set up a one-time listener for when it reconnects
+      const onConnect = () => {
+        existingSocket.off("connect", onConnect);
+        resolve(existingSocket);
+      };
+      existingSocket.once("connect", onConnect);
+      // Also resolve immediately - the socket will reconnect automatically
+      // This allows the caller to proceed while reconnection happens in background
+      setTimeout(() => resolve(existingSocket), 100);
+    });
+  }
 
   const user = auth.currentUser;
   if (!user) throw new Error("No user for socket");
@@ -54,44 +72,71 @@ export async function getSocket(): Promise<Socket> {
       transports: ["websocket", "polling"], // Try websocket first, fallback to polling
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity, // Keep trying to reconnect indefinitely
+      timeout: 20000, // Connection timeout
+      forceNew: false, // Reuse existing connection if available
     });
 
-    s.on("connect", () => {
-      console.log(
-        "✅ Socket connected:",
-        s.id,
-        "transport:",
-        s.io.engine.transport.name
-      );
+    // Track if this is the initial connection
+    let isInitialConnection = true;
+    let hasResolved = false;
+
+    s.on("connect", async () => {
+      // If reconnecting (not initial connection), refresh token
+      // Note: Socket.io doesn't support updating auth after connection, but we refresh
+      // the token here so it's ready for the next reconnection if needed
+      if (!isInitialConnection) {
+        try {
+          const currentUser = auth.currentUser;
+          if (currentUser) {
+            // Refresh token for future use (token is cached by Firebase)
+            await currentUser.getIdToken(true);
+          }
+        } catch (err) {
+          console.error("Error refreshing token after reconnect:", err);
+        }
+      }
+      
       socket = s;
-      resolve(s);
+      if (isInitialConnection && !hasResolved) {
+        isInitialConnection = false;
+        hasResolved = true;
+        resolve(s);
+      }
     });
 
     s.on("connect_error", (err) => {
       console.error("❌ Socket connection error:", err);
-      reject(err);
+      // Only reject on initial connection attempt
+      if (isInitialConnection && !hasResolved) {
+        isInitialConnection = false;
+        hasResolved = true;
+        reject(err);
+      }
     });
 
-    s.on("disconnect", (reason) => {
-      console.log("⚠️ Socket disconnected:", reason);
+    s.on("disconnect", () => {
+      isInitialConnection = false;
     });
+
+    s.on("reconnect", () => {
+      isInitialConnection = false;
+    });
+
+    s.on("reconnect_error", (error) => {
+      console.error("❌ Socket reconnection error:", error);
+    });
+
+    // Note: reconnect_failed event won't fire with reconnectionAttempts: Infinity
+    // so we don't need to handle it
   });
-}
-
-export async function joinRoom(roomId: string) {
-  const s = await getSocket();
-  s.emit("join-room", roomId);
 }
 
 export function leaveRoom(roomId: string) {
   if (!socket) {
-    console.warn(`⚠️ Cannot leave room ${roomId}: socket not available`);
     return;
   }
-  console.log(
-    `🔌 Leaving room ${roomId} via leaveRoom() (socket: ${socket.id})`
-  );
   socket.emit("leave-room", roomId);
 }
 
@@ -109,12 +154,6 @@ type Handlers = {
   onRoomUsersChanged?: (count: number) => void;
   onRoomThemeChanged?: (theme: RoomThemeId) => void;
   onChatMessageAdded?: (message: ChatMessage) => void;
-  onTestUserJoined?: (payload: {
-    roomId: string;
-    userId: string;
-    userName: string;
-    timestamp: number;
-  }) => void;
 };
 
 export function subscribeToRoomEvents(
@@ -140,7 +179,6 @@ export function subscribeToRoomEvents(
     onRoomUsersChanged,
     onRoomThemeChanged,
     onChatMessageAdded,
-    onTestUserJoined,
   } = handlers;
 
   // Store handlers for proper cleanup
@@ -249,9 +287,6 @@ export function subscribeToRoomEvents(
     const handler = (payload: any) => {
       // Filter by roomId if provided, otherwise accept (for backward compatibility with direct socket.emit)
       if (payload?.roomId && payload.roomId !== roomId) {
-        console.log(
-          `⚠️ now-playing-state event room mismatch: expected ${roomId}, got ${payload.roomId}`
-        );
         return;
       }
       const trackId = payload?.trackId ?? null;
@@ -260,22 +295,6 @@ export function subscribeToRoomEvents(
     };
     s.on("now-playing-state", handler);
     handlerRefs.push({ event: "now-playing-state", handler });
-  }
-
-  if (onTestUserJoined) {
-    const handler = (payload: any) => {
-      console.log(`📨 Received test-user-joined event:`, payload);
-      if (payload.roomId === roomId) {
-        console.log(`✅ Test event matches room ${roomId}, calling handler`);
-        onTestUserJoined(payload);
-      } else {
-        console.log(
-          `⚠️ Test event room mismatch: expected ${roomId}, got ${payload.roomId}`
-        );
-      }
-    };
-    s.on("test-user-joined", handler);
-    handlerRefs.push({ event: "test-user-joined", handler });
   }
 
   // unsubscribe function

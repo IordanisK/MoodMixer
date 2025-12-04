@@ -125,10 +125,8 @@ export function useRoomDetail(roomId: string) {
   };
 
   const handleTrackEnded = async () => {
-    console.log("🎵 Track ended, advancing to next track...");
     try {
       const result = await advanceToNextTrack(roomId);
-      console.log("Advanced to next track:", result.nextTrackId);
       if (result.nextTrackId) {
         setNowPlayingId(result.nextTrackId);
         if (result.room?.nowPlayingStartedAt) {
@@ -137,15 +135,13 @@ export function useRoomDetail(roomId: string) {
       } else {
         setNowPlayingId(null);
         setNowPlayingStartedAt(null);
-        console.log("Queue ended - no more tracks");
       }
     } catch (e) {
-      console.log("Error advancing to next track", e);
+      console.error("Error advancing to next track", e);
     }
   };
 
   const handleSkipTrack = async () => {
-    console.log("⏭️ Skipping track...");
     await handleTrackEnded();
   };
 
@@ -200,8 +196,28 @@ export function useRoomDetail(roomId: string) {
         const socket = await getSocket();
 
         setSocketConnected(socket.connected);
-        const handleConnect = () => setSocketConnected(true);
-        const handleDisconnect = () => setSocketConnected(false);
+        
+        // Handler for when socket connects (including reconnections)
+        const handleConnect = async () => {
+          setSocketConnected(true);
+          
+          // Rejoin the room on reconnect to ensure we're still in the room
+          // This is important because socket.io rooms are cleared on disconnect
+          if (socket.connected) {
+            socket.emit("join-room", roomId);
+            
+            // Reload state to catch up on any missed events while disconnected
+            try {
+              await Promise.all([loadTracks(), loadRoom()]);
+            } catch (err) {
+              console.error("Error reloading room state after reconnect:", err);
+            }
+          }
+        };
+        
+        const handleDisconnect = () => {
+          setSocketConnected(false);
+        };
 
         socket.on("connect", handleConnect);
         socket.on("disconnect", handleDisconnect);
@@ -242,43 +258,28 @@ export function useRoomDetail(roomId: string) {
           onRoomThemeChanged: (theme) => {
             setRoomTheme(theme);
           },
-          onTestUserJoined: (payload) => {
-            console.log(
-              `🧪 TEST EVENT: User "${payload.userName}" (${
-                payload.userId
-              }) joined room ${payload.roomId} at ${new Date(
-                payload.timestamp
-              ).toLocaleTimeString()}`
-            );
-          },
         }, socket);
 
         // Join the room after subscribing to events
-        // Wait a bit to ensure socket is fully ready
         if (socket.connected) {
-          console.log(`🔌 Joining room ${roomId} (socket connected: ${socket.id})`);
           socket.emit("join-room", roomId);
         } else {
-          console.log(`🔌 Socket not connected yet, waiting...`);
           socket.once("connect", () => {
-            console.log(`🔌 Socket connected, joining room ${roomId}`);
             socket.emit("join-room", roomId);
           });
         }
 
         socketCleanup = () => {
-          console.log(`🔌 Leaving room ${roomId} (socket: ${socket.id})`);
           socket.emit("leave-room", roomId);
           socket.off("connect", handleConnect);
           socket.off("disconnect", handleDisconnect);
         };
       } catch (err) {
-        console.log("Error joining room / socket", err);
+        console.error("Error joining room / socket", err);
       }
     })();
 
     return () => {
-      console.log(`🧹 Cleaning up room ${roomId}`);
       // Unsubscribe from all event listeners first
       if (unsubscribeEvents) unsubscribeEvents();
       // Leave the room and clean up socket handlers

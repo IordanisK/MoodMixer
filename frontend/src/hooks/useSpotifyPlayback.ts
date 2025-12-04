@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Platform, Alert } from "react-native";
-import { Track, TrackMetadata } from "../api/rooms";
+import { Track } from "../api/rooms";
 
 type Props = {
   nowPlayingTrack: Track | undefined;
@@ -12,6 +12,11 @@ type Props = {
 /**
  * Hook to manage Spotify playback synchronization
  * Handles playing Spotify tracks when they're set as now playing
+ * 
+ * IMPORTANT: Playback is independent per user:
+ * - Users with Spotify connected play immediately when a track starts
+ * - Users without Spotify connected see a warning and can connect anytime
+ * - When a disconnected user connects later, they automatically sync to the current playback position
  */
 export function useSpotifyPlayback({
   nowPlayingTrack,
@@ -64,13 +69,18 @@ export function useSpotifyPlayback({
       return;
     }
 
+    // Store pending playback if Spotify isn't ready yet
+    // This ensures we can start playback when Spotify becomes ready
+    // IMPORTANT: Each user's playback is independent - connected users play immediately,
+    // disconnected users will play when they connect
     if (!spotifyReady) {
-      // Spotify not ready yet - store the pending playback so we can retry when ready
       if (nowPlayingTrack && nowPlayingTrack.id) {
+        // Update pending playback with latest state (in case startedAt changes)
+        // Always use the latest startedAt to ensure we sync to current position when connecting
         pendingPlaybackRef.current = {
           trackId: nowPlayingTrack.id,
           url: nowPlayingTrack.url,
-          startedAt: nowPlayingStartedAt,
+          startedAt: nowPlayingStartedAt, // This will be used to calculate offset when connecting
         };
       }
       // The effect will re-run when spotifyReady becomes true
@@ -78,14 +88,16 @@ export function useSpotifyPlayback({
     }
 
     // If we have pending playback and Spotify just became ready, prioritize playing it
+    // This handles the case where a user connects to Spotify while a track is already playing
     if (
       pendingPlaybackRef.current.trackId &&
       pendingPlaybackRef.current.url &&
       pendingPlaybackRef.current.trackId === nowPlayingTrack?.id
     ) {
-      // Use pending playback data
+      // Use pending playback data, but prefer current startedAt if available (more accurate)
       const pendingUrl = pendingPlaybackRef.current.url;
-      const pendingStartedAt = pendingPlaybackRef.current.startedAt;
+      // Use the most recent startedAt - either from pending or current state
+      const startedAtToUse = nowPlayingStartedAt ?? pendingPlaybackRef.current.startedAt;
 
       // Clear pending
       pendingPlaybackRef.current = {
@@ -94,10 +106,10 @@ export function useSpotifyPlayback({
         startedAt: null,
       };
 
-      // Check if we've already played this
+      // Check if we've already played this exact combination
       if (
         lastPlayedRef.current.trackId === nowPlayingTrack.id &&
-        lastPlayedRef.current.startedAt === pendingStartedAt
+        lastPlayedRef.current.startedAt === startedAtToUse
       ) {
         return;
       }
@@ -109,15 +121,17 @@ export function useSpotifyPlayback({
 
           lastPlayedRef.current = {
             trackId: nowPlayingTrack.id,
-            startedAt: pendingStartedAt,
+            startedAt: startedAtToUse,
           };
 
-          if (!pendingStartedAt) {
+          if (!startedAtToUse) {
             await playSpotifyTrack(pendingUrl, 0);
           } else {
+            // Calculate offset based on how long the track has been playing
+            // This ensures users connecting later sync to the current position
             const offsetSeconds = Math.max(
               0,
-              (Date.now() - pendingStartedAt) / 1000
+              (Date.now() - startedAtToUse) / 1000
             );
             await playSpotifyTrack(pendingUrl, offsetSeconds);
           }
@@ -129,7 +143,7 @@ export function useSpotifyPlayback({
             pendingPlaybackRef.current = {
               trackId: nowPlayingTrack.id,
               url: pendingUrl,
-              startedAt: pendingStartedAt,
+              startedAt: startedAtToUse,
             };
           }
           lastPlayedRef.current = { trackId: null, startedAt: null };
@@ -149,14 +163,20 @@ export function useSpotifyPlayback({
       return;
     }
 
-    // For Spotify tracks, wait for the startedAt timestamp to arrive
+    // For Spotify tracks, wait for the startedAt timestamp to arrive if we don't have it yet
     // This prevents playing from 0 and then restarting when the timestamp arrives
-    // The onNowPlayingState event will fire with the timestamp shortly after onNowPlayingChanged
+    // However, if we already have a startedAt (e.g., from loadRoom when joining), we can proceed
     if (
       !nowPlayingStartedAt &&
       lastPlayedRef.current.trackId !== nowPlayingTrack.id
     ) {
       // Don't play yet - wait for the onNowPlayingState event to fire with startedAt
+      // But store as pending so we can play when timestamp arrives
+      pendingPlaybackRef.current = {
+        trackId: nowPlayingTrack.id,
+        url: nowPlayingTrack.url,
+        startedAt: null,
+      };
       return;
     }
 
@@ -176,6 +196,8 @@ export function useSpotifyPlayback({
           // fallback: start from 0 if we don't have a timestamp
           await playSpotifyTrack(nowPlayingTrack.url, 0);
         } else {
+          // Calculate offset based on how long the track has been playing
+          // This ensures users joining mid-track start at the correct position
           const offsetSeconds = Math.max(
             0,
             (Date.now() - nowPlayingStartedAt) / 1000
