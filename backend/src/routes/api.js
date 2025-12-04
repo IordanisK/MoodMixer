@@ -11,10 +11,11 @@ import { authMiddleware } from "../middleware/auth.js";
 export function registerApiRoutes(app, io, db, admin) {
   const router = express.Router();
 
-  const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-  const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-  const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
-  const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL;
+  // Trim whitespace from Spotify credentials to avoid common issues
+  const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID?.trim();
+  const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET?.trim();
+  const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI?.trim();
+  const SPOTIFY_FRONTEND_URL = process.env.SPOTIFY_FRONTEND_URL?.trim();
 
   // Validate Spotify environment variables
   if (
@@ -1400,6 +1401,20 @@ export function registerApiRoutes(app, io, db, admin) {
     const userId = req.user.uid;
 
     try {
+      // Validate Spotify credentials are configured
+      if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+        console.error("Spotify credentials not configured:", {
+          hasClientId: !!SPOTIFY_CLIENT_ID,
+          hasClientSecret: !!SPOTIFY_CLIENT_SECRET,
+          clientIdLength: SPOTIFY_CLIENT_ID?.length || 0,
+          clientSecretLength: SPOTIFY_CLIENT_SECRET?.length || 0,
+        });
+        return res.status(500).json({
+          error: "Spotify integration not configured",
+          details: "Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET",
+        });
+      }
+
       const doc = await spotifyUsersRef.doc(userId).get();
       console.log("spotifyUsers doc exists?", doc.exists);
 
@@ -1432,10 +1447,31 @@ export function registerApiRoutes(app, io, db, admin) {
 
       const tokenJson = await tokenRes.json();
       if (!tokenRes.ok) {
-        console.error("Error refreshing Spotify token:", tokenJson);
-        return res
-          .status(500)
-          .json({ error: "Error refreshing Spotify token" });
+        console.error("Error refreshing Spotify token:", {
+          error: tokenJson.error,
+          errorDescription: tokenJson.error_description,
+          status: tokenRes.status,
+          hasClientId: !!SPOTIFY_CLIENT_ID,
+          hasClientSecret: !!SPOTIFY_CLIENT_SECRET,
+          clientIdLength: SPOTIFY_CLIENT_ID?.length || 0,
+          clientSecretLength: SPOTIFY_CLIENT_SECRET?.length || 0,
+          // Don't log actual values for security
+        });
+
+        // Provide more specific error message
+        if (tokenJson.error === "invalid_client") {
+          return res.status(500).json({
+            error: "Spotify authentication failed",
+            details:
+              "Invalid client credentials. Please check SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET are correctly set in Cloud Run environment variables.",
+          });
+        }
+
+        return res.status(500).json({
+          error: "Error refreshing Spotify token",
+          details:
+            tokenJson.error_description || tokenJson.error || "Unknown error",
+        });
       }
 
       const { access_token, expires_in } = tokenJson;
